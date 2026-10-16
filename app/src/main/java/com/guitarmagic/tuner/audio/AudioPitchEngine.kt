@@ -108,7 +108,8 @@ class AudioPitchEngine(private val context: Context) {
         } finally {
             try {
                 recorder.stop()
-            } catch (_: IllegalStateException) {
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "停止录音失败", e)
             }
             recorder.release()
         }
