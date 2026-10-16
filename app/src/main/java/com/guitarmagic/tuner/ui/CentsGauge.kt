@@ -1,5 +1,6 @@
 package com.guitarmagic.tuner.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,6 +28,7 @@ private const val MAX_ANGLE = 75f // ±50 音分对应 ±75°
 
 /**
  * 半圆形刻度盘，指针显示 -50..+50 音分的偏差。
+ * 指针使用弹簧动画平滑跟随；颜色、绿色区域亮度都带过渡动画。
  * @param cents 当前偏差；null 表示无信号，指针回到中间并变淡
  */
 @Composable
@@ -39,19 +41,21 @@ fun CentsGauge(
     val target = (cents ?: 0.0).toFloat().coerceIn(-MAX_CENTS, MAX_CENTS)
     val animated by animateFloatAsState(
         targetValue = target,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessLow),
         label = "needle",
     )
     val tunerColors = LocalTunerColors.current
     val tickColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val needleColor = when {
+    val needleTarget = when {
         cents == null -> MaterialTheme.colorScheme.outlineVariant
         inTune -> tunerColors.inTune
         else -> tunerColors.offTune
     }
+    val needleColor by animateColorAsState(needleTarget, Motion.standard(Motion.SHORT * 2), label = "needleColor")
+    val zoneAlpha by animateFloatAsState(if (inTune) 0.85f else 0.28f, Motion.standard(), label = "zone")
+    val needleAlpha by animateFloatAsState(if (dimmed) 0.45f else 1f, Motion.standard(), label = "needleAlpha")
     val textMeasurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(fontSize = 12.sp, color = labelColor)
+    val labelStyle = TextStyle(fontSize = 12.sp, color = tickColor)
 
     Canvas(modifier) {
         val radius = min(size.width / 2f, size.height) * 0.92f
@@ -66,7 +70,7 @@ fun CentsGauge(
         val zoneAngle = 5f / MAX_CENTS * MAX_ANGLE
         val zoneRadius = radius - 4.dp.toPx()
         drawArc(
-            color = tunerColors.inTune.copy(alpha = 0.35f),
+            color = tunerColors.inTune.copy(alpha = zoneAlpha),
             startAngle = -90f - zoneAngle,
             sweepAngle = zoneAngle * 2,
             useCenter = false,
@@ -75,7 +79,7 @@ fun CentsGauge(
             style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round),
         )
 
-        // 刻度
+        // 刻度：靠近指针的刻度稍微加亮，跟随指针流动
         for (c in -50..50 step 5) {
             val angle = c / MAX_CENTS * MAX_ANGLE
             val length = when {
@@ -83,11 +87,13 @@ fun CentsGauge(
                 c % 10 == 0 -> 12.dp.toPx()
                 else -> 7.dp.toPx()
             }
-            val color = if (abs(c) <= 5) tunerColors.inTune else tickColor
+            val base = if (abs(c) <= 5) tunerColors.inTune else tickColor
+            val proximity = if (cents == null) 0f else (1f - abs(c - animated) / 12f).coerceIn(0f, 1f)
+            val alpha = (if (c % 10 == 0) 0.75f else 0.4f) + 0.25f * proximity
             drawLine(
-                color = color.copy(alpha = if (c % 10 == 0) 0.9f else 0.5f),
+                color = base.copy(alpha = alpha.coerceAtMost(1f)),
                 start = point(angle, radius),
-                end = point(angle, radius - length),
+                end = point(angle, radius - length - 4.dp.toPx() * proximity),
                 strokeWidth = (if (c % 25 == 0) 2.5f else 1.5f).dp.toPx(),
                 cap = StrokeCap.Round,
             )
@@ -97,7 +103,7 @@ fun CentsGauge(
         for (c in listOf(-50, -25, 0, 25, 50)) {
             val text = if (c > 0) "+$c" else "$c"
             val layout = textMeasurer.measure(text, labelStyle)
-            val p = point(c / MAX_CENTS * MAX_ANGLE, radius - 32.dp.toPx())
+            val p = point(c / MAX_CENTS * MAX_ANGLE, radius - 34.dp.toPx())
             drawText(
                 layout,
                 topLeft = Offset(p.x - layout.size.width / 2f, p.y - layout.size.height / 2f),
@@ -105,15 +111,15 @@ fun CentsGauge(
         }
 
         // 指针
-        val alpha = if (dimmed) 0.45f else 1f
         val needleAngle = animated / MAX_CENTS * MAX_ANGLE
+        val color = needleColor.copy(alpha = needleColor.alpha * needleAlpha)
         drawLine(
-            color = needleColor.copy(alpha = alpha),
+            color = color,
             start = center,
             end = point(needleAngle, radius - 10.dp.toPx()),
             strokeWidth = 4.dp.toPx(),
             cap = StrokeCap.Round,
         )
-        drawCircle(color = needleColor.copy(alpha = alpha), radius = 8.dp.toPx(), center = center)
+        drawCircle(color = color, radius = 8.dp.toPx(), center = center)
     }
 }

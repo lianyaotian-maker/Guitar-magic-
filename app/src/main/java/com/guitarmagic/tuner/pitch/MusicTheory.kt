@@ -8,7 +8,7 @@ import kotlin.math.roundToInt
 data class NoteInfo(
     /** MIDI 编号，A4 = 69，C4 = 60 */
     val midi: Int,
-    /** 音名，例如 "A"、"C♯" */
+    /** 音名，例如 "A"、"C♯"、"D♭" */
     val name: String,
     /** 科学音高记号中的八度，C4 为中央 C */
     val octave: Int,
@@ -26,13 +26,22 @@ object MusicTheory {
     const val MIN_A4 = 430.0
     const val MAX_A4 = 450.0
 
-    private val NAMES = arrayOf("C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B")
+    private val SHARP_NAMES = arrayOf("C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B")
+    private val FLAT_NAMES = arrayOf("C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "B")
 
-    fun noteName(midi: Int): String = NAMES[Math.floorMod(midi, 12)]
+    /** 12 个音名（用于音高选择器），按 C 到 B 排列。 */
+    fun pitchClassNames(useFlats: Boolean = false): List<String> =
+        (if (useFlats) FLAT_NAMES else SHARP_NAMES).toList()
+
+    fun noteName(midi: Int, useFlats: Boolean = false): String =
+        (if (useFlats) FLAT_NAMES else SHARP_NAMES)[Math.floorMod(midi, 12)]
 
     fun octave(midi: Int): Int = Math.floorDiv(midi, 12) - 1
 
-    fun label(midi: Int): String = "${noteName(midi)}${octave(midi)}"
+    fun label(midi: Int, useFlats: Boolean = false): String = "${noteName(midi, useFlats)}${octave(midi)}"
+
+    /** 由音级（0 = C … 11 = B）和八度得到 MIDI 编号。 */
+    fun midiOf(pitchClass: Int, octave: Int): Int = (octave + 1) * 12 + pitchClass
 
     fun midiToFrequency(midi: Int, a4: Double = DEFAULT_A4): Double =
         a4 * 2.0.pow((midi - 69) / 12.0)
@@ -45,13 +54,13 @@ object MusicTheory {
     fun cents(frequency: Double, reference: Double): Double =
         1200.0 * ln(frequency / reference) / ln(2.0)
 
-    fun nearestNote(frequency: Double, a4: Double = DEFAULT_A4): NoteInfo {
+    fun nearestNote(frequency: Double, a4: Double = DEFAULT_A4, useFlats: Boolean = false): NoteInfo {
         val midiFloat = frequencyToMidi(frequency, a4)
         val midi = midiFloat.roundToInt()
         val target = midiToFrequency(midi, a4)
         return NoteInfo(
             midi = midi,
-            name = noteName(midi),
+            name = noteName(midi, useFlats),
             octave = octave(midi),
             cents = cents(frequency, target),
             frequency = target,
@@ -59,13 +68,24 @@ object MusicTheory {
     }
 }
 
-/** 一种调弦方式，strings 按 6 弦（最粗）到 1 弦（最细）排列，值为 MIDI 编号。 */
-data class Tuning(val id: String, val displayName: String, val strings: List<Int>) {
+/**
+ * 一种调弦方式，strings 按 6 弦（最粗）到 1 弦（最细）排列，值为 MIDI 编号。
+ * @param isCustom 用户自建的预设（可编辑、可删除）
+ */
+data class Tuning(
+    val id: String,
+    val displayName: String,
+    val strings: List<Int>,
+    val isCustom: Boolean = false,
+) {
     init {
-        require(strings.size == 6)
+        require(strings.size == STRING_COUNT) { "调弦必须有 $STRING_COUNT 根弦" }
     }
 
     fun frequencies(a4: Double): List<Double> = strings.map { MusicTheory.midiToFrequency(it, a4) }
+
+    fun notesSummary(useFlats: Boolean = false): String =
+        strings.joinToString(" ") { MusicTheory.label(it, useFlats) }
 
     /** 找出与频率最接近的弦（按音分距离），返回下标 0..5（0 为 6 弦）。 */
     fun closestString(frequency: Double, a4: Double): Int {
@@ -84,6 +104,12 @@ data class Tuning(val id: String, val displayName: String, val strings: List<Int
     }
 
     companion object {
+        const val STRING_COUNT = 6
+
+        /** 自定义弦音允许的范围：B1（约 61.7 Hz，七弦吉他最低音）到 C6（1046.5 Hz），均在已测试的识别范围内。 */
+        const val MIN_STRING_MIDI = 35
+        const val MAX_STRING_MIDI = 84
+
         // MIDI: E2=40 A2=45 D3=50 G3=55 B3=59 E4=64
         val STANDARD = Tuning("standard", "标准调弦", listOf(40, 45, 50, 55, 59, 64))
         val DROP_D = Tuning("drop_d", "Drop D", listOf(38, 45, 50, 55, 59, 64))
@@ -91,8 +117,9 @@ data class Tuning(val id: String, val displayName: String, val strings: List<Int
         val OPEN_G = Tuning("open_g", "Open G", listOf(38, 43, 50, 55, 59, 62))
         val DADGAD = Tuning("dadgad", "DADGAD", listOf(38, 45, 50, 55, 57, 62))
 
-        val ALL = listOf(STANDARD, DROP_D, HALF_STEP_DOWN, OPEN_G, DADGAD)
+        val BUILT_IN = listOf(STANDARD, DROP_D, HALF_STEP_DOWN, OPEN_G, DADGAD)
 
-        fun byId(id: String?): Tuning = ALL.firstOrNull { it.id == id } ?: STANDARD
+        fun byId(id: String?, custom: List<Tuning> = emptyList()): Tuning =
+            BUILT_IN.firstOrNull { it.id == id } ?: custom.firstOrNull { it.id == id } ?: STANDARD
     }
 }

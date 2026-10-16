@@ -16,6 +16,19 @@ class MusicTheoryTest {
     }
 
     @Test
+    fun flatNames() {
+        assertEquals("E♭2", MusicTheory.label(39, useFlats = true))
+        assertEquals("B♭3", MusicTheory.label(58, useFlats = true))
+        assertEquals("E2", MusicTheory.label(40, useFlats = true))
+        assertEquals("A♭4", MusicTheory.nearestNote(415.3, 440.0, useFlats = true).label)
+        assertEquals("G♯4", MusicTheory.nearestNote(415.3, 440.0).label)
+        assertEquals("E♭2 A♭2 D♭3 G♭3 B♭3 E♭4", Tuning.HALF_STEP_DOWN.notesSummary(useFlats = true))
+        assertEquals(12, MusicTheory.pitchClassNames(true).size)
+        assertEquals(40, MusicTheory.midiOf(4, 2))
+        assertEquals(69, MusicTheory.midiOf(9, 4))
+    }
+
+    @Test
     fun openStringFrequencies_at440() {
         val expected = listOf(82.4069, 110.0, 146.8324, 195.9977, 246.9417, 329.6276)
         Tuning.STANDARD.frequencies(440.0).zip(expected).forEach { (actual, exp) ->

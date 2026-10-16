@@ -4,20 +4,28 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.guitarmagic.tuner.audio.AudioPitchEngine
+import com.guitarmagic.tuner.core.CustomTunings
+import com.guitarmagic.tuner.core.TuneProgress
 import com.guitarmagic.tuner.data.SettingsRepository
 import com.guitarmagic.tuner.pitch.MusicTheory
 import com.guitarmagic.tuner.pitch.NoteInfo
 import com.guitarmagic.tuner.pitch.Tuning
+import com.guitarmagic.tuner.tone.ReferenceTonePlayer
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 data class TunerUiState(
     val a4: Double = MusicTheory.DEFAULT_A4,
     val tuning: Tuning = Tuning.STANDARD,
+    val customTunings: List<Tuning> = emptyList(),
     /** 手动锁定的弦（0 = 6 弦），null 表示自动识别 */
     val lockedString: Int? = null,
     /** 平滑后的实时频率，null 表示没有声音 */
@@ -27,7 +35,13 @@ data class TunerUiState(
     val levelDb: Double = -120.0,
     val listening: Boolean = false,
     val error: String? = null,
-)
+    val useFlats: Boolean = false,
+    val hapticsEnabled: Boolean = true,
+    /** 本次已调准的弦 */
+    val tunedStrings: Set<Int> = emptySet(),
+) {
+    val allTuned: Boolean get() = tunedStrings.size == Tuning.STRING_COUNT
+}
 
 /** 界面需要显示的全部数值，由 [TunerUiState] 推导。 */
 data class TunerDisplay(
@@ -54,18 +68,18 @@ data class TunerDisplay(
 
 fun TunerUiState.toDisplay(): TunerDisplay {
     val f = frequency ?: return TunerDisplay(activeString = lockedString)
-    val note = MusicTheory.nearestNote(f, a4)
+    val note = MusicTheory.nearestNote(f, a4, useFlats)
     val stringIndex = lockedString ?: tuning.closestString(f, a4)
     val stringMidi = tuning.strings[stringIndex]
     val stringTarget = MusicTheory.midiToFrequency(stringMidi, a4)
     val stringCents = MusicTheory.cents(f, stringTarget)
-    val stringLabel = "${6 - stringIndex}弦 ${MusicTheory.label(stringMidi)}"
+    val stringLabel = "${Tuning.STRING_COUNT - stringIndex}弦 ${MusicTheory.label(stringMidi, useFlats)}"
     return if (lockedString != null) {
         TunerDisplay(
             frequency = f,
             note = note,
             cents = stringCents,
-            referenceLabel = MusicTheory.label(stringMidi),
+            referenceLabel = MusicTheory.label(stringMidi, useFlats),
             referenceFrequency = stringTarget,
             activeString = stringIndex,
             stringLabel = stringLabel,
@@ -89,9 +103,26 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settings = SettingsRepository(application)
     private val engine = AudioPitchEngine(application)
+    private val tonePlayer = ReferenceTonePlayer()
+    private val progress = TuneProgress()
 
-    private val _state = MutableStateFlow(TunerUiState(a4 = settings.a4, tuning = settings.tuning))
+    private val _state = MutableStateFlow(
+        settings.customTunings.let { custom ->
+            TunerUiState(
+                a4 = settings.a4,
+                tuning = Tuning.byId(settings.selectedTuningId, custom),
+                customTunings = custom,
+                useFlats = settings.useFlats,
+                hapticsEnabled = settings.hapticsEnabled,
+            )
+        },
+    )
     val state: StateFlow<TunerUiState> = _state.asStateFlow()
+
+    private val _stringTuned = MutableSharedFlow<Int>(extraBufferCapacity = 8)
+
+    /** 某根弦刚刚调准（用于振动反馈）。 */
+    val stringTuned: SharedFlow<Int> = _stringTuned.asSharedFlow()
 
     var permissionRequested: Boolean
         get() = settings.permissionRequested
@@ -104,17 +135,34 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(listening = true, error = null) }
         engine.start(viewModelScope) { event ->
             when (event) {
-                is AudioPitchEngine.Event.Pitch -> _state.update {
-                    it.copy(
-                        frequency = event.output.frequency,
-                        holding = event.output.holding,
-                        levelDb = event.output.levelDb,
-                    )
-                }
+                is AudioPitchEngine.Event.Pitch -> onPitch(event)
                 is AudioPitchEngine.Event.Error -> _state.update {
                     it.copy(error = event.message, listening = false, frequency = null)
                 }
             }
+        }
+    }
+
+    private fun onPitch(event: AudioPitchEngine.Event.Pitch) {
+        val updated = _state.updateAndGet {
+            it.copy(
+                frequency = event.output.frequency,
+                holding = event.output.holding,
+                levelDb = event.output.levelDb,
+            )
+        }
+        val display = updated.toDisplay()
+        val fresh = !updated.holding && updated.frequency != null
+        val newlyTuned = synchronized(progress) {
+            val result = progress.update(
+                if (fresh) display.activeString else null,
+                if (fresh) display.stringCents else null,
+            )
+            if (result != null) progress.tunedStrings else null
+        }
+        if (newlyTuned != null) {
+            _state.update { it.copy(tunedStrings = newlyTuned) }
+            _stringTuned.tryEmit(newlyTuned.size)
         }
     }
 
@@ -132,19 +180,74 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         val v = value.roundToInt().toDouble().coerceIn(MusicTheory.MIN_A4, MusicTheory.MAX_A4)
         settings.a4 = v
         _state.update { it.copy(a4 = v) }
+        resetProgress()
+    }
+
+    fun setUseFlats(value: Boolean) {
+        settings.useFlats = value
+        _state.update { it.copy(useFlats = value) }
+    }
+
+    fun setHapticsEnabled(value: Boolean) {
+        settings.hapticsEnabled = value
+        _state.update { it.copy(hapticsEnabled = value) }
     }
 
     fun setTuning(tuning: Tuning) {
-        settings.tuning = tuning
+        settings.selectedTuningId = tuning.id
         _state.update { it.copy(tuning = tuning, lockedString = null) }
+        resetProgress()
     }
 
     /** 点击某根弦：锁定；再次点击同一根弦：恢复自动识别。 */
     fun toggleLock(index: Int) {
+        if (index !in 0 until Tuning.STRING_COUNT) return
         _state.update { it.copy(lockedString = if (it.lockedString == index) null else index) }
     }
 
+    fun resetProgress() {
+        synchronized(progress) { progress.reset() }
+        _state.update { it.copy(tunedStrings = emptySet()) }
+    }
+
+    /**
+     * 新建或修改自定义调弦。id 为 null 表示新建。
+     * @return 保存后的预设；名称为空或音高不合法时返回 null
+     */
+    fun saveCustomTuning(id: String?, name: String, strings: List<Int>): Tuning? {
+        val current = _state.value.customTunings
+        if (id == null && current.size >= CustomTunings.MAX_PRESETS) return null
+        val finalId = id ?: CustomTunings.newId(current, System.currentTimeMillis())
+        val tuning = CustomTunings.build(finalId, name, strings) ?: return null
+        val list = if (current.any { it.id == finalId }) {
+            current.map { if (it.id == finalId) tuning else it }
+        } else {
+            current + tuning
+        }
+        settings.customTunings = list
+        _state.update { it.copy(customTunings = list) }
+        val selected = _state.value.tuning
+        if (id == null || selected.id == finalId) setTuning(tuning)
+        return tuning
+    }
+
+    fun deleteCustomTuning(id: String) {
+        val list = _state.value.customTunings.filterNot { it.id == id }
+        settings.customTunings = list
+        _state.update { it.copy(customTunings = list) }
+        if (_state.value.tuning.id == id) setTuning(Tuning.STANDARD)
+    }
+
+    fun defaultCustomName(): String = CustomTunings.defaultName(_state.value.customTunings)
+
+    fun playTone(midi: Int) {
+        tonePlayer.play(MusicTheory.midiToFrequency(midi, _state.value.a4))
+    }
+
+    fun stopTone() = tonePlayer.stop()
+
     override fun onCleared() {
         engine.stop()
+        tonePlayer.release()
     }
 }

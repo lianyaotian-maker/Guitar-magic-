@@ -47,6 +47,14 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric 界面测试需要真实的资源
+            isIncludeAndroidResources = true
+        }
     }
 }
 
@@ -71,4 +79,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
 
     testImplementation("junit:junit:4.13.2")
+    // 界面冒烟测试：在 JVM 上用 Robolectric 渲染 Compose 界面并模拟点击
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
