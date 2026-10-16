@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 半圆刻度 + 指针 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M32,64 A22,22 0 0,1 76,64"
+        android:strokeWidth="4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54,38 L54,44"
+        android:strokeWidth="3"
+        android:strokeColor="#FF7BE495"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,64 L62,46"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FF7BE495"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,64 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0"
+        android:fillColor="#FFFFFFFF" />
+</vector>
