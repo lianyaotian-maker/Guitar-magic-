@@ -59,6 +59,14 @@ android {
 }
 
 tasks.withType<Test>().configureEach {
+    // Robolectric 在 JDK 17+ 上需要访问部分 JDK 内部类
+    jvmArgs(
+        "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+        "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+    )
     testLogging {
         events("passed", "failed")
         exceptionFormat = TestExceptionFormat.FULL
