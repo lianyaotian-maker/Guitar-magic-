@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.guitarmagic.tuner.MainActivity
@@ -15,9 +16,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
 
 /** 启动真实的 MainActivity（真实 ViewModel），在各个页面间切换并操作，确保整体不崩溃。 */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w411dp-h891dp-xxhdpi")
 class AppSmokeTest {
 
     @get:Rule
@@ -34,25 +37,25 @@ class AppSmokeTest {
             rule.onNodeWithTag("tuningButton").performClick()
             rule.waitForIdle()
             rule.onNodeWithText("选择调弦").assertIsDisplayed()
-            rule.onNodeWithTag("createPreset").performClick()
+            rule.onNodeWithTag("createPreset").performScrollTo().performClick()
             rule.waitForIdle()
-            rule.onNodeWithTag("savePreset").performClick()
+            rule.onNodeWithTag("savePreset").performScrollTo().performClick()
             rule.waitForIdle()
             rule.onNodeWithText("我的调弦 1 ▾").assertIsDisplayed()
 
             // 节拍器：开始、停止
             rule.onNodeWithTag("tab_METRONOME").performClick()
             rule.waitForIdle()
-            rule.onNodeWithTag("startStop").performClick()
+            rule.onNodeWithTag("startStop").performScrollTo().performClick()
             rule.waitForIdle()
-            rule.onNodeWithTag("bpmPlus").performClick()
-            rule.onNodeWithTag("startStop").performClick()
+            rule.onNodeWithTag("bpmPlus").performScrollTo().performClick()
+            rule.onNodeWithTag("startStop").performScrollTo().performClick()
             rule.waitForIdle()
 
             // 设置：切换降号
             rule.onNodeWithTag("tab_SETTINGS").performClick()
             rule.waitForIdle()
-            rule.onNodeWithTag("flats").performClick()
+            rule.onNodeWithTag("flats").performScrollTo().performClick()
             rule.waitForIdle()
 
             // 回到调音页
@@ -71,7 +74,7 @@ class AppSmokeTest {
             rule.onNodeWithText("需要使用麦克风").assertIsDisplayed()
             rule.onNodeWithTag("tab_METRONOME").performClick()
             rule.waitForIdle()
-            rule.onNodeWithTag("startStop").assertIsDisplayed()
+            rule.onNodeWithTag("startStop").performScrollTo().assertIsDisplayed()
         }
     }
 }

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -30,9 +31,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /** 在 JVM 上渲染各个界面并模拟操作，确保不会崩溃、交互正确。 */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w411dp-h891dp-xxhdpi")
 class UiSmokeTest {
 
     @get:Rule
@@ -114,8 +117,8 @@ class UiSmokeTest {
                 )
             }
         }
-        rule.onNodeWithText("标准调弦").assertIsDisplayed()
-        rule.onNodeWithTag("createPreset").performClick()
+        rule.onNodeWithText("✓ 标准调弦").assertIsDisplayed()
+        rule.onNodeWithTag("createPreset").performScrollTo().performClick()
         rule.waitForIdle()
 
         rule.onNodeWithTag("presetName").performTextClearance()
@@ -124,14 +127,14 @@ class UiSmokeTest {
         rule.onNodeWithTag("savePreset").assertIsEnabled()
 
         // 打开 1 弦的音高选择器，改成 D4
-        rule.onNodeWithTag("editString5").performClick()
+        rule.onNodeWithTag("editString5").performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("1弦音高").assertIsDisplayed()
         rule.onNodeWithText("D").performClick()
         rule.onNodeWithText("确定").performClick()
         rule.waitForIdle()
 
-        rule.onNodeWithTag("savePreset").performClick()
+        rule.onNodeWithTag("savePreset").performScrollTo().performClick()
         val result = saved!!
         assertEquals(null, result.first)
         assertEquals("Open D", result.second)
@@ -151,13 +154,13 @@ class UiSmokeTest {
                 )
             }
         }
-        rule.onNodeWithText("✓ 我的 Open D").assertIsDisplayed()
-        rule.onNodeWithText("删除").performClick()
+        rule.onNodeWithText("✓ 我的 Open D").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("删除").performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("删除预设").assertIsDisplayed()
         rule.onNodeWithText("取消").performClick()
         assertEquals(null, deleted)
-        rule.onNodeWithText("删除").performClick()
+        rule.onNodeWithText("删除").performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("确定删除", substring = true).assertIsDisplayed()
         // 对话框里的“删除”按钮是最后一个
@@ -195,13 +198,13 @@ class UiSmokeTest {
         rule.onNodeWithTag("bpmMinus").performClick()
         rule.onNodeWithTag("bpmPlus").performClick()
         assertEquals(1, delta)
-        rule.onNodeWithTag("startStop").performClick()
+        rule.onNodeWithTag("startStop").performScrollTo().performClick()
         assertEquals(1, toggles)
-        rule.onNodeWithTag("tap").performClick()
+        rule.onNodeWithTag("tap").performScrollTo().performClick()
         assertEquals(1, taps)
-        rule.onNodeWithText("三连音").performClick()
+        rule.onNodeWithText("三连音").performScrollTo().performClick()
         assertEquals(Subdivision.TRIPLET, sub)
-        rule.onNodeWithTag("beatsPlus").performClick()
+        rule.onNodeWithTag("beatsPlus").performScrollTo().performClick()
         assertEquals(5, beats)
 
         // 切换到播放状态（摆锤动画、拍点）不应崩溃
@@ -228,11 +231,11 @@ class UiSmokeTest {
                 )
             }
         }
-        rule.onNodeWithTag("flats").performClick()
+        rule.onNodeWithTag("flats").performScrollTo().performClick()
         assertEquals(true, flats)
-        rule.onNodeWithText("+").performClick()
+        rule.onNodeWithText("+").performScrollTo().performClick()
         assertEquals(441.0, a4, 1e-9)
-        rule.onNodeWithText("恢复默认 440 Hz").performClick()
+        rule.onNodeWithText("恢复默认 440 Hz").performScrollTo().performClick()
         assertEquals(440.0, a4, 1e-9)
         assertTrue(haptics == null)
     }

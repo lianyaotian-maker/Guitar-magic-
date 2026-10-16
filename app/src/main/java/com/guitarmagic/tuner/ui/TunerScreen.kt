@@ -29,10 +29,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -154,8 +154,14 @@ fun TunerContent(
     modifier: Modifier = Modifier,
 ) {
     val display = state.toDisplay()
+    // 根据可用高度自适应：矮屏手机上缩小表盘和音名，保证所有内容都能完整显示
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val compact = maxHeight < 600.dp
+    val reserved = if (compact) 400.dp else 480.dp
+    val gaugeMax = maxOf(80.dp, (maxWidth - 40.dp) / 2)
+    val gaugeHeight = (maxHeight - reserved).coerceIn(80.dp, gaugeMax)
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -169,10 +175,10 @@ fun TunerContent(
             dimmed = state.holding,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f),
+                .height(gaugeHeight),
         )
         Spacer(Modifier.height(4.dp))
-        NoteReadout(display, state.useFlats, dimmed = state.holding)
+        NoteReadout(display, state.useFlats, dimmed = state.holding, compact = compact)
         Spacer(Modifier.height(14.dp))
         StatusLine(state, display)
 
@@ -208,6 +214,7 @@ fun TunerContent(
                 TextButton(onClick = onRetry) { Text("重试") }
             }
         }
+    }
     }
 }
 
@@ -309,7 +316,7 @@ fun A4Editor(value: Float, onChange: (Float) -> Unit, modifier: Modifier = Modif
 }
 
 @Composable
-private fun NoteReadout(display: TunerDisplay, useFlats: Boolean, dimmed: Boolean) {
+private fun NoteReadout(display: TunerDisplay, useFlats: Boolean, dimmed: Boolean, compact: Boolean) {
     val colors = LocalTunerColors.current
     val contentAlpha by animateFloatAsState(if (dimmed) 0.5f else 1f, Motion.standard(), label = "readoutAlpha")
     val glow by animateFloatAsState(if (display.inTune && !dimmed) 1f else 0f, Motion.standard(), label = "glow")
@@ -329,7 +336,7 @@ private fun NoteReadout(display: TunerDisplay, useFlats: Boolean, dimmed: Boolea
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(124.dp)
+                .height(if (compact) 96.dp else 124.dp)
                 .drawBehind {
                     // 调准时音名背后浮现柔和的绿色光晕（仅在绘制阶段读取动画值，不触发重组）
                     if (glow > 0.01f) {
@@ -372,14 +379,14 @@ private fun NoteReadout(display: TunerDisplay, useFlats: Boolean, dimmed: Boolea
                     } else {
                         buildAnnotatedString {
                             append(MusicTheory.noteName(midi, useFlats))
-                            withStyle(SpanStyle(fontSize = 44.sp, fontWeight = FontWeight.Normal)) {
+                            withStyle(SpanStyle(fontSize = if (compact) 34.sp else 44.sp, fontWeight = FontWeight.Normal)) {
                                 append(MusicTheory.octave(midi).toString())
                             }
                         }
                     },
-                    fontSize = 104.sp,
+                    fontSize = if (compact) 80.sp else 104.sp,
                     fontWeight = FontWeight.SemiBold,
-                    lineHeight = 112.sp,
+                    lineHeight = if (compact) 88.sp else 112.sp,
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.testTag("noteLabel"),
                 )
@@ -448,7 +455,7 @@ private fun StatusLine(state: TunerUiState, display: TunerDisplay) {
     val color by animateColorAsState(targetColor, Motion.standard(), label = "statusColor")
     val text = when (kind) {
         StatusKind.IDLE -> if (state.listening) "请弹奏一根琴弦" else "麦克风未开启"
-        StatusKind.IN_TUNE -> "✓ 已调准"
+        StatusKind.IN_TUNE -> inTuneText(state, display)
         else -> statusText(state, display)
     }
     // 只在状态类别变化时做过渡，数值变化时直接更新文字，避免反复闪动
@@ -476,6 +483,16 @@ private fun statusDirectionHigh(state: TunerUiState, display: TunerDisplay): Boo
     val stringCents = display.stringCents
     if (state.lockedString == null && stringCents != null && abs(stringCents) > 50) return stringCents > 0
     return (display.cents ?: 0.0) > 0
+}
+
+/** 音准了；但自动模式下如果这个音不是任何一根弦的目标音，再提示离最近的弦还差多少。 */
+private fun inTuneText(state: TunerUiState, display: TunerDisplay): String {
+    val stringCents = display.stringCents
+    if (state.lockedString == null && stringCents != null && abs(stringCents) > 50 && display.note != null) {
+        val direction = if (stringCents > 0) "偏高，请调松" else "偏低，请调紧"
+        return "✓ ${display.note.label} 已调准\n${display.stringLabel} $direction（相差 ${abs(stringCents).roundToInt()} 音分）"
+    }
+    return "✓ 已调准"
 }
 
 private fun statusText(state: TunerUiState, display: TunerDisplay): String {
