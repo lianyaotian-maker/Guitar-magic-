@@ -302,8 +302,8 @@ private fun BeatDots(config: MetronomeConfig, visual: () -> MetronomeEngine.Visu
             val accent = i == 0 && accentOn
             val active = v != null && v.beat == i
             var r = if (accent) baseRadius * 1.25f else baseRadius
-            if (active) {
-                val strength = if (v!!.sub == 0) 0.45f else 0.15f
+            if (v != null && active) {
+                val strength = if (v.sub == 0) 0.45f else 0.15f
                 r *= 1f + strength * exp(-v.secondsSinceTick / 0.09f)
             }
             val color = when {

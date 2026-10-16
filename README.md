@@ -1,20 +1,34 @@
 # 吉他调音器（Android）
 
-Kotlin + Jetpack Compose 编写的吉他调音器，完全离线，音高识别算法（YIN）自行实现。
+Kotlin + Jetpack Compose 编写的吉他调音器 + 节拍器，完全离线，音高识别算法（YIN）自行实现。
 
-- 识别范围 55–1500 Hz，带噪声门与中值平滑
-- 显示音名（科学音高记号）、实际频率、音分偏差、标准音频率
-- 标准 / Drop D / 降半音 / Open G / DADGAD，可手动锁定琴弦
-- 基准音 A4 可在 430–450 Hz 之间调节（本地保存）
+## 功能
+
+**调音**
+- 识别范围 55–1500 Hz，带噪声门与中值平滑，指针弹簧动画
+- 显示音名（科学音高记号，可选升号/降号）、实际频率、音分偏差、标准音频率
+- 内置标准 / Drop D / 降半音 / Open G / DADGAD
+- **自定义调弦预设**：为每根弦选择任意音高（B1–C6），可新建、编辑、删除，本地保存
+- 自动识别琴弦或手动锁定；长按琴弦试听参考音
+- 已调准的弦打勾，6 根全部调准时提示；调准时振动反馈
+- 基准音 A4 可在 430–450 Hz 之间调节
+
+**节拍器**
+- 30–250 BPM，按采样精确排布，长时间运行不漂移
+- 每小节 1–12 拍、细分（八分 / 三连音 / 十六分）、第一拍重音
+- 敲击测速（TAP）、意大利速度术语
+- 摆锤与拍点动画与声音同步
 
 ## 下载
 
-每次推送到 `main` 分支，GitHub Actions 会先运行单元测试，通过后编译 APK 并发布到
+每次推送到 `main` 分支，GitHub Actions 会先运行全部测试，通过后编译 APK 并发布到
 [Releases](../../releases/latest) 页面。
 
 ## 代码结构
 
-- `app/src/main/java/.../pitch/` 纯 Kotlin 的音高检测（YIN）、平滑、乐理计算
-- `app/src/main/java/.../audio/` AudioRecord 麦克风采集
-- `app/src/main/java/.../ui/` Compose 界面
-- `app/src/test/` 算法单元测试（合成正弦波与多泛音信号，误差要求 ±1 音分）
+- `pitch/` 纯 Kotlin 的音高检测（YIN）、平滑、乐理计算
+- `core/` 自定义调弦存储、调准进度、参考音合成
+- `metronome/` 节拍器调度（纯 Kotlin）与 AudioTrack 播放引擎
+- `audio/`、`tone/` 麦克风采集、参考音播放
+- `ui/` Compose 界面
+- `app/src/test/` 单元测试（算法 ±1 音分、节拍器零漂移等）+ Robolectric 界面冒烟测试
