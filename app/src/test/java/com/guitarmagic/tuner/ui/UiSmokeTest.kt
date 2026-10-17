@@ -269,8 +269,7 @@ class UiSmokeTest {
         assertEquals(Subdivision.TRIPLET, sub)
         rule.onNodeWithTag("beatsPlus").performScrollTo().performClick()
         assertEquals(5, beats)
-        rule.onNodeWithText("第一拍重音").performScrollTo()
-        rule.onNode(androidx.compose.ui.test.isToggleable()).performClick()
+        rule.onNodeWithTag("accentSwitch").performScrollTo().performClick()
         assertEquals(false, accent)
 
         // 切换到播放状态（摆锤动画、拍点）不应崩溃
@@ -311,7 +310,7 @@ class UiSmokeTest {
         assertEquals(441.0, a4, 1e-9)
         rule.onNodeWithText("恢复默认 440 Hz").performScrollTo().performClick()
         assertEquals(440.0, a4, 1e-9)
-        rule.onNode(androidx.compose.ui.test.isToggleable()).performScrollTo().performClick()
+        rule.onNodeWithTag("hapticsSwitch").performScrollTo().performClick()
         assertEquals(false, haptics)
         assertTrue(true)
     }
@@ -387,8 +386,11 @@ class UiSmokeTest {
                 )
             }
         }
-        rule.onNodeWithText("偏高 · 请调松").assertIsDisplayed()
+        // 相差整整一个半音：提示是哪根弦、偏高多少
+        rule.onNodeWithText("偏高，请调松", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("相差 100 音分", substring = true).assertIsDisplayed()
         rule.onNodeWithText("标准音 E♭2").assertIsDisplayed()
+        rule.onNodeWithText("已调准", substring = true).assertDoesNotExist()
     }
 
     @Test
