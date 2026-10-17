@@ -68,6 +68,18 @@ class TunerViewModelTest {
     }
 
     @Test
+    fun sensitivityAndMode_persist() {
+        val vm = newViewModel()
+        assertEquals(com.guitarmagic.tuner.pitch.Sensitivity.MEDIUM, vm.state.value.sensitivity)
+        assertEquals(com.guitarmagic.tuner.pitch.DetectionMode.GUITAR, vm.state.value.detectionMode)
+        vm.setSensitivity(com.guitarmagic.tuner.pitch.Sensitivity.LOW)
+        vm.setDetectionMode(com.guitarmagic.tuner.pitch.DetectionMode.CHROMATIC)
+        val reloaded = newViewModel()
+        assertEquals(com.guitarmagic.tuner.pitch.Sensitivity.LOW, reloaded.state.value.sensitivity)
+        assertEquals(com.guitarmagic.tuner.pitch.DetectionMode.CHROMATIC, reloaded.state.value.detectionMode)
+    }
+
+    @Test
     fun invalidCustomTuning_isRejected() {
         val vm = newViewModel()
         assertNull(vm.saveCustomTuning(null, "  ", listOf(38, 45, 50, 54, 57, 62)))

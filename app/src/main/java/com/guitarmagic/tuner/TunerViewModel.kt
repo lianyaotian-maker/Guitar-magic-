@@ -7,8 +7,11 @@ import com.guitarmagic.tuner.audio.AudioPitchEngine
 import com.guitarmagic.tuner.core.CustomTunings
 import com.guitarmagic.tuner.core.TuneProgress
 import com.guitarmagic.tuner.data.SettingsRepository
+import com.guitarmagic.tuner.pitch.DetectionMode
+import com.guitarmagic.tuner.pitch.DetectionRange
 import com.guitarmagic.tuner.pitch.MusicTheory
 import com.guitarmagic.tuner.pitch.NoteInfo
+import com.guitarmagic.tuner.pitch.Sensitivity
 import com.guitarmagic.tuner.pitch.Tuning
 import com.guitarmagic.tuner.tone.ReferenceTonePlayer
 import kotlinx.coroutines.Job
@@ -19,6 +22,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
@@ -46,6 +51,8 @@ data class TunerUiState(
     val playingToneMidi: Int? = null,
     /** 节拍器正在运行（此时暂停识别，避免把滴答声当成音高） */
     val metronomeRunning: Boolean = false,
+    val sensitivity: Sensitivity = Sensitivity.MEDIUM,
+    val detectionMode: DetectionMode = DetectionMode.GUITAR,
 ) {
     /** 识别是否被暂停 */
     val paused: Boolean get() = playingToneMidi != null || metronomeRunning
@@ -124,10 +131,43 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 customTunings = custom,
                 useFlats = settings.useFlats,
                 hapticsEnabled = settings.hapticsEnabled,
+                sensitivity = settings.sensitivity,
+                detectionMode = settings.detectionMode,
             )
         },
     )
     val state: StateFlow<TunerUiState> = _state.asStateFlow()
+
+    init {
+        // 调弦、锁定弦、基准音、识别模式或灵敏度变化时，同步更新识别引擎的音域与触发门限
+        syncEngine(_state.value)
+        viewModelScope.launch {
+            _state
+                .map { DetectionRange.of(it.tuning, it.a4, it.lockedString, it.detectionMode) to it.sensitivity }
+                .distinctUntilChanged()
+                .collect { (range, sensitivity) ->
+                    engine.detectionRange = range
+                    engine.sensitivity = sensitivity
+                }
+        }
+    }
+
+    private fun syncEngine(s: TunerUiState) {
+        engine.detectionRange = DetectionRange.of(s.tuning, s.a4, s.lockedString, s.detectionMode)
+        engine.sensitivity = s.sensitivity
+    }
+
+    fun setSensitivity(value: Sensitivity) {
+        settings.sensitivity = value
+        _state.update { it.copy(sensitivity = value) }
+        syncEngine(_state.value)
+    }
+
+    fun setDetectionMode(value: DetectionMode) {
+        settings.detectionMode = value
+        _state.update { it.copy(detectionMode = value) }
+        syncEngine(_state.value)
+    }
 
     private val _stringTuned = MutableSharedFlow<Int>(extraBufferCapacity = 8)
 

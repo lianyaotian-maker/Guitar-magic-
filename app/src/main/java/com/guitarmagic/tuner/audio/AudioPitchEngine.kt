@@ -8,8 +8,10 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.SystemClock
 import android.util.Log
+import com.guitarmagic.tuner.pitch.DetectionRange
 import com.guitarmagic.tuner.pitch.PitchStream
 import com.guitarmagic.tuner.pitch.PitchTracker
+import com.guitarmagic.tuner.pitch.Sensitivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,6 +40,13 @@ class AudioPitchEngine(private val context: Context) {
     /** 持续屏蔽识别（例如节拍器正在运行）。 */
     @Volatile
     var externallySuppressed = false
+
+    /** 允许识别的音域（随调弦、锁定弦与识别模式变化）。 */
+    @Volatile
+    var detectionRange: ClosedFloatingPointRange<Double> = DetectionRange.FULL_MIN_HZ..DetectionRange.FULL_MAX_HZ
+
+    @Volatile
+    var sensitivity: Sensitivity = Sensitivity.MEDIUM
 
     /** 从现在起屏蔽识别 [millis] 毫秒（不会缩短已有的屏蔽时间）。 */
     fun suppressFor(millis: Long) {
@@ -125,7 +134,9 @@ class AudioPitchEngine(private val context: Context) {
                     continue
                 }
                 for (i in 0 until HOP_SIZE) hopFloats[i] = hop[i] / 32768f
-                val output = stream.processHop(hopFloats, now) ?: continue
+                stream.sensitivity = sensitivity
+                val range = detectionRange
+                val output = stream.processHop(hopFloats, now, range.start, range.endInclusive) ?: continue
                 onEvent(Event.Pitch(output))
             }
         } finally {

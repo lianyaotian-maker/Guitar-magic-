@@ -20,6 +20,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.guitarmagic.tuner.BuildConfig
 import com.guitarmagic.tuner.TunerUiState
 import com.guitarmagic.tuner.TunerViewModel
+import com.guitarmagic.tuner.pitch.DetectionMode
+import com.guitarmagic.tuner.pitch.Sensitivity
 import com.guitarmagic.tuner.ui.ios.IosDivider
 import com.guitarmagic.tuner.ui.ios.IosLargeTitle
 import com.guitarmagic.tuner.ui.ios.IosRow
@@ -37,6 +39,8 @@ fun SettingsTab(viewModel: TunerViewModel, modifier: Modifier = Modifier) {
         onSetA4 = viewModel::setA4,
         onSetUseFlats = viewModel::setUseFlats,
         onSetHaptics = viewModel::setHapticsEnabled,
+        onSetSensitivity = viewModel::setSensitivity,
+        onSetDetectionMode = viewModel::setDetectionMode,
         modifier = modifier,
     )
 }
@@ -48,6 +52,8 @@ fun SettingsContent(
     onSetUseFlats: (Boolean) -> Unit,
     onSetHaptics: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    onSetSensitivity: (Sensitivity) -> Unit = {},
+    onSetDetectionMode: (DetectionMode) -> Unit = {},
 ) {
     val colors = LocalIosColors.current
     Column(
@@ -60,6 +66,34 @@ fun SettingsContent(
             verticalArrangement = Arrangement.spacedBy(28.dp),
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
         ) {
+            IosSection(
+                header = "识别",
+                footer = "灵敏度：环境嘈杂时选“低”，安静环境里轻轻拨弦选“高”。\n" +
+                    "吉他琴弦模式只识别当前调弦附近的音，最不容易被说话声和杂音干扰；半音阶模式可识别任意音。",
+            ) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text("灵敏度", style = IosType.body, color = colors.label)
+                    Spacer(Modifier.padding(top = 8.dp))
+                    IosSegmentedControl(
+                        options = Sensitivity.entries.map { it.label },
+                        selectedIndex = Sensitivity.entries.indexOf(state.sensitivity),
+                        onSelect = { onSetSensitivity(Sensitivity.entries[it]) },
+                        tags = Sensitivity.entries.map { "sensitivity_${it.name}" },
+                    )
+                }
+                IosDivider()
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text("识别模式", style = IosType.body, color = colors.label)
+                    Spacer(Modifier.padding(top = 8.dp))
+                    IosSegmentedControl(
+                        options = DetectionMode.entries.map { it.label },
+                        selectedIndex = DetectionMode.entries.indexOf(state.detectionMode),
+                        onSelect = { onSetDetectionMode(DetectionMode.entries[it]) },
+                        tags = DetectionMode.entries.map { "mode_${it.name}" },
+                    )
+                }
+            }
+
             IosSection(header = "基准音 A4", footer = "范围 430–450 Hz。大多数乐器使用 440 Hz。") {
                 A4Editor(
                     value = state.a4.toFloat(),
@@ -90,7 +124,7 @@ fun SettingsContent(
             }
 
             IosSection(header = "使用小贴士") {
-                Tip("把手机放在离吉他 20–50 厘米的地方。轻轻拨弦也能识别。")
+                Tip("把手机放在离吉他 20–50 厘米的地方，每次清晰地拨一根弦。")
                 IosDivider()
                 Tip("每次只拨一根弦，让它自然延音，指针稳定后再拧弦钮。")
                 IosDivider()
@@ -102,7 +136,7 @@ fun SettingsContent(
             }
 
             IosSection(header = "关于") {
-                IosRow(title = "版本", value = BuildConfig.VERSION_NAME)
+                IosRow(title = "Guitar Magic", value = "版本 ${BuildConfig.VERSION_NAME}")
                 IosDivider()
                 IosRow(title = "音高识别", value = "YIN 算法 · 离线")
                 IosDivider()

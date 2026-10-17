@@ -51,13 +51,13 @@ jobs:
       - name: 重命名 APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk "out/GuitarTuner-${VERSION}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "out/GuitarMagic-${VERSION}.apk"
           ls -l out
 
       - name: 上传 APK（构建产物）
         uses: actions/upload-artifact@v4
         with:
-          name: GuitarTuner-${{ env.VERSION }}
+          name: GuitarMagic-${{ env.VERSION }}
           path: out/*.apk
 
       - name: 发布到 GitHub Releases
@@ -65,10 +65,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
-          name: 吉他调音器 ${{ env.VERSION }}
+          name: Guitar Magic ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
           body: |
             自动编译的调试版 APK（提交 ${{ github.sha }}）。
-            在安卓手机浏览器中点击下方 Assets 里的 `GuitarTuner-${{ env.VERSION }}.apk` 下载并安装。
+            在安卓手机浏览器中点击下方 Assets 里的 `GuitarMagic-${{ env.VERSION }}.apk` 下载并安装。
           files: out/*.apk
           make_latest: true

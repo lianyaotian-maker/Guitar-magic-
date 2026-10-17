@@ -4,7 +4,9 @@ import android.content.Context
 import com.guitarmagic.tuner.core.CustomTunings
 import com.guitarmagic.tuner.metronome.MetronomeConfig
 import com.guitarmagic.tuner.metronome.Subdivision
+import com.guitarmagic.tuner.pitch.DetectionMode
 import com.guitarmagic.tuner.pitch.MusicTheory
+import com.guitarmagic.tuner.pitch.Sensitivity
 import com.guitarmagic.tuner.pitch.Tuning
 
 /** 本地保存的设置。所有读取都做了容错，数据损坏时回到默认值。 */
@@ -33,6 +35,14 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_HAPTICS, true)
         set(value) = prefs.edit().putBoolean(KEY_HAPTICS, value).apply()
 
+    var sensitivity: Sensitivity
+        get() = Sensitivity.entries.firstOrNull { it.name == prefs.getString(KEY_SENSITIVITY, null) } ?: Sensitivity.MEDIUM
+        set(value) = prefs.edit().putString(KEY_SENSITIVITY, value.name).apply()
+
+    var detectionMode: DetectionMode
+        get() = DetectionMode.entries.firstOrNull { it.name == prefs.getString(KEY_DETECTION_MODE, null) } ?: DetectionMode.GUITAR
+        set(value) = prefs.edit().putString(KEY_DETECTION_MODE, value.name).apply()
+
     var permissionRequested: Boolean
         get() = prefs.getBoolean(KEY_PERMISSION_REQUESTED, false)
         set(value) = prefs.edit().putBoolean(KEY_PERMISSION_REQUESTED, value).apply()
@@ -59,6 +69,8 @@ class SettingsRepository(context: Context) {
         const val KEY_USE_FLATS = "use_flats"
         const val KEY_HAPTICS = "haptics"
         const val KEY_PERMISSION_REQUESTED = "permission_requested"
+        const val KEY_SENSITIVITY = "sensitivity"
+        const val KEY_DETECTION_MODE = "detection_mode"
         const val KEY_BPM = "metronome_bpm"
         const val KEY_BEATS = "metronome_beats"
         const val KEY_SUBDIVISION = "metronome_subdivision"

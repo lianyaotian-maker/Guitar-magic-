@@ -5,48 +5,66 @@ import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 
+/** 识别灵敏度：调整“拨弦触发”所需的最小音量。 */
+enum class Sensitivity(val offsetDb: Double, val label: String) {
+    LOW(6.0, "低"),
+    MEDIUM(0.0, "中"),
+    HIGH(-6.0, "高"),
+}
+
+/** 识别模式。 */
+enum class DetectionMode(val label: String) {
+    /** 只识别当前调弦各弦附近的音（推荐，抗干扰最强） */
+    GUITAR("吉他琴弦"),
+    /** 识别 55–1500 Hz 内的任意音 */
+    CHROMATIC("半音阶"),
+}
+
 /**
- * 把逐帧检测串起来：自适应噪声门 → YIN 检测 → 一致性校验 → 中值平滑 → 短暂保持。
- * 不依赖 Android，便于单元测试。
+ * 拨弦触发式的音高跟踪器（纯 Kotlin，可单元测试）。
  *
- * 噪声门不再使用固定音量，而是持续估计环境噪声（噪声底），信号比噪声底高出
- * [openMarginDb] 就开始识别。这样无论手机麦克风灵敏度高低、房间安静与否，
- * 轻轻拨弦也能识别；真正的噪声则由 YIN 的置信度与连续帧一致性校验挡掉。
+ * 工作方式与专业调音 App 一致：
+ * 1. **待命**：不显示任何读数，持续估计环境噪声；
+ * 2. **拨弦起音**：音量在短时间内明显升高、且高于“噪声 + 余量”和绝对下限，才打开识别窗口；
+ * 3. **确认**：窗口内连续 [CONFIRM_FRAMES] 帧都是高置信度的周期信号、音高彼此相差不超过
+ *    [CONFIRM_CENTS] 音分、且落在允许的音域内，才认定为一个琴弦音并开始显示；
+ *    说话、滑音、敲击、杂音、持续的背景声都无法同时满足这些条件；
+ * 4. **跟随**：琴弦持续发声时，跟随音高的缓慢变化（拧弦钮）；
+ *    新的拨弦且音高明显不同（换弦）时重新确认并切换；
+ * 5. **释放**：声音衰减到持续门限以下或不再稳定，进入保持状态，读数保留 [holdMillis] 后消失。
  */
 class PitchTracker(
     sampleRate: Int = 44100,
-    /** 比噪声底高出多少 dB 开始识别 */
-    private val openMarginDb: Double = 6.0,
-    /** 识别过程中降到噪声底以上多少 dB 才停止（滞回） */
-    private val closeMarginDb: Double = 3.0,
-    /** 绝对下限：再安静的环境，低于此音量也不识别（接近 16 位量化噪声） */
-    private val absoluteMinDb: Double = -85.0,
-    /** 置信度达到此值，单帧即可采信 */
-    private val strongConfidence: Double = 0.85,
-    /** 置信度达到此值，需要与上一帧或当前音高一致才采信（用于小音量） */
-    private val weakConfidence: Double = 0.65,
-    /** 信号消失后保留最后读数的时间 */
-    private val holdMillis: Long = 1200,
-    initialNoiseFloorDb: Double = -80.0,
+    var sensitivity: Sensitivity = Sensitivity.MEDIUM,
+    private val holdMillis: Long = 1500,
+    private val releaseMillis: Long = 300,
+    initialNoiseFloorDb: Double = -75.0,
 ) {
     data class Output(
         /** 平滑后的频率；null 表示当前没有可显示的音高 */
         val frequency: Double?,
-        /** 当前帧是否没有新的有效检测（显示的是保留的旧值） */
+        /** 当前帧没有新的有效检测（显示的是保留的旧值） */
         val holding: Boolean,
         /** 当前帧音量（dBFS） */
         val levelDb: Double,
         /** 当前估计的环境噪声底（dBFS） */
         val noiseFloorDb: Double = -120.0,
+        /** 是否正在跟踪一个琴弦音 */
+        val tracking: Boolean = false,
     )
 
+    private enum class State { IDLE, TRACKING }
+
     private val detector = YinPitchDetector(sampleRate = sampleRate)
-    private val smoother = PitchSmoother()
+    private val smoother = PitchSmoother(windowSize = 7, emaAlpha = 0.3)
     private val initialFloor = initialNoiseFloorDb
-    private var gateOpen = false
+    private val recentDb = ArrayDeque<Double>()
+    private val candidates = ArrayList<Double>()
+    private var state = State.IDLE
     private var current: Double? = null
-    private var lastCandidate: Double? = null
-    private var lastValidAt = Long.MIN_VALUE
+    private var lastGoodAt = Long.MIN_VALUE
+    private var frameIndex = 0L
+    private var onsetUntil = -1L
 
     /** 当前估计的噪声底（dBFS）。 */
     var noiseFloorDb: Double = initialNoiseFloorDb
@@ -54,69 +72,168 @@ class PitchTracker(
 
     val minFrameSize: Int get() = detector.minBufferSize
 
+    /** 清空识别状态（保留噪声底估计）。 */
     fun reset() {
         smoother.reset()
-        gateOpen = false
+        recentDb.clear()
+        candidates.clear()
+        state = State.IDLE
         current = null
-        lastCandidate = null
-        lastValidAt = Long.MIN_VALUE
+        lastGoodAt = Long.MIN_VALUE
+        onsetUntil = -1L
     }
 
-    /** 连噪声底一起重置（例如重新打开麦克风时）。 */
+    /** 连噪声底一起重置。 */
     fun resetAll() {
         reset()
         noiseFloorDb = initialFloor
     }
 
-    fun process(frame: FloatArray, nowMillis: Long): Output {
+    /**
+     * 处理一帧。
+     * @param minHz/maxHz 允许的音域，范围外的音高一律忽略
+     */
+    fun process(
+        frame: FloatArray,
+        nowMillis: Long,
+        minHz: Double = 0.0,
+        maxHz: Double = Double.MAX_VALUE,
+    ): Output {
+        frameIndex++
         val db = detector.rmsDb(frame)
-        val openDb = max(noiseFloorDb + openMarginDb, absoluteMinDb)
-        val closeDb = max(noiseFloorDb + closeMarginDb, absoluteMinDb - 3.0)
-        gateOpen = if (gateOpen) db >= closeDb else db >= openDb
+        val offset = sensitivity.offsetDb
+        val acquireDb = max(noiseFloorDb + ACQUIRE_MARGIN_DB, ACQUIRE_MIN_DB + offset)
+        val sustainDb = max(noiseFloorDb + SUSTAIN_MARGIN_DB, SUSTAIN_MIN_DB + offset)
 
-        var fresh: Double? = null
-        var candidate: Double? = null
-        if (gateOpen) {
-            val result = detector.detect(frame)
-            if (result != null && result.confidence >= weakConfidence) {
-                candidate = result.frequency
-                val consistentWithPrevious = lastCandidate?.let { semitones(result.frequency, it) < 0.6 } == true
-                val consistentWithCurrent = current?.let { semitones(result.frequency, it) < 0.6 } == true
-                if (result.confidence >= strongConfidence || consistentWithPrevious || consistentWithCurrent) {
-                    fresh = smoother.add(result.frequency)
-                    lastValidAt = nowMillis
+        // 起音检测：比最近一段时间的最低音量高出 ONSET_RISE_DB，且足够响
+        val recentMin = recentDb.minOrNull() ?: SILENCE_DB
+        if (db >= acquireDb && db - recentMin >= ONSET_RISE_DB) onsetUntil = frameIndex + ONSET_WINDOW_FRAMES
+        recentDb.addLast(db)
+        while (recentDb.size > ONSET_LOOKBACK_FRAMES) recentDb.removeFirst()
+
+        val result = if (db >= sustainDb) detector.detect(frame) else null
+        val frequency = result?.frequency?.takeIf { it in minHz..maxHz }
+        val confidence = result?.confidence ?: 0.0
+        val candidateOk = frequency != null &&
+            frameIndex <= onsetUntil &&
+            db >= acquireDb &&
+            confidence >= ACQUIRE_CONFIDENCE
+
+        var fresh = false
+        when (state) {
+            State.IDLE -> {
+                if (candidateOk) {
+                    candidates += frequency!!
+                    if (confirmed()) {
+                        startTracking(nowMillis)
+                        fresh = true
+                    }
+                } else {
+                    candidates.clear()
                 }
             }
+            State.TRACKING -> {
+                val reference = current
+                val follows = frequency != null && reference != null &&
+                    confidence >= SUSTAIN_CONFIDENCE &&
+                    semitones(frequency, reference) <= FOLLOW_SEMITONES
+                if (follows) {
+                    current = smoother.add(frequency!!)
+                    lastGoodAt = nowMillis
+                    fresh = true
+                    candidates.clear()
+                } else if (candidateOk) {
+                    // 音高明显不同的新拨弦（换弦）：重新确认后切换
+                    candidates += frequency!!
+                    if (confirmed()) {
+                        startTracking(nowMillis)
+                        fresh = true
+                    }
+                } else {
+                    candidates.clear()
+                }
+                if (!fresh && nowMillis - lastGoodAt > releaseMillis) state = State.IDLE
+            }
         }
-        lastCandidate = candidate
-        updateNoiseFloor(db, signalPresent = fresh != null)
 
-        if (fresh != null) {
-            current = fresh
-        } else if (current != null && nowMillis - lastValidAt > holdMillis) {
-            current = null
-            smoother.reset()
+        if (state == State.IDLE) {
+            updateNoiseFloor(db)
+            if (current != null && nowMillis - lastGoodAt > holdMillis) {
+                current = null
+                smoother.reset()
+            }
         }
-        return Output(current, holding = fresh == null && current != null, levelDb = db, noiseFloorDb = noiseFloorDb)
+        return Output(
+            frequency = current,
+            holding = !fresh && current != null,
+            levelDb = db,
+            noiseFloorDb = noiseFloorDb,
+            tracking = state == State.TRACKING,
+        )
+    }
+
+    private fun confirmed(): Boolean {
+        if (candidates.size < CONFIRM_FRAMES) return false
+        val last = candidates.takeLast(CONFIRM_FRAMES)
+        val center = last.sorted()[last.size / 2]
+        return last.all { semitones(it, center) * 100 <= CONFIRM_CENTS }
+    }
+
+    private fun startTracking(nowMillis: Long) {
+        smoother.reset()
+        var value = 0.0
+        candidates.takeLast(CONFIRM_FRAMES).forEach { value = smoother.add(it) }
+        candidates.clear()
+        current = value
+        state = State.TRACKING
+        lastGoodAt = nowMillis
     }
 
     /**
-     * 噪声底估计：比当前估计更安静的帧让它快速下降；没有识别到音高的帧
-     * （即噪声）让它较快上升（约 9 dB/秒）；正在发音时几乎不动。
+     * 噪声底估计（只在待命时更新）：更安静的帧让它快速下降，其余帧让它缓慢上升（约 3 dB/秒）。
+     * 环境变吵时触发门限随之升高，避免背景声误触发。
      */
-    private fun updateNoiseFloor(db: Double, signalPresent: Boolean) {
+    private fun updateNoiseFloor(db: Double) {
         val floor = noiseFloorDb
-        noiseFloorDb = when {
-            db < floor -> floor + 0.3 * (db - floor)
-            !signalPresent -> floor + min(db - floor, 0.4)
-            else -> floor + 0.01
+        noiseFloorDb = if (db < floor) {
+            floor + 0.3 * (db - floor)
+        } else {
+            floor + min(db - floor, 0.15)
         }.coerceIn(MIN_FLOOR_DB, MAX_FLOOR_DB)
     }
 
     private fun semitones(a: Double, b: Double): Double = abs(12.0 * ln(a / b) / ln(2.0))
 
-    private companion object {
-        const val MIN_FLOOR_DB = -100.0
-        const val MAX_FLOOR_DB = -40.0
+    companion object {
+        /** 触发识别需比噪声底高出的音量 */
+        const val ACQUIRE_MARGIN_DB = 14.0
+
+        /** 触发识别的绝对最低音量（中等灵敏度） */
+        const val ACQUIRE_MIN_DB = -64.0
+
+        /** 跟踪中保持识别需比噪声底高出的音量 */
+        const val SUSTAIN_MARGIN_DB = 6.0
+
+        /** 跟踪中保持识别的绝对最低音量（中等灵敏度） */
+        const val SUSTAIN_MIN_DB = -74.0
+
+        /** 起音：比最近若干帧的最低音量高出的幅度 */
+        const val ONSET_RISE_DB = 6.0
+        const val ONSET_LOOKBACK_FRAMES = 8
+
+        /** 起音后允许确认的帧数（约 0.37 秒） */
+        const val ONSET_WINDOW_FRAMES = 8
+
+        const val ACQUIRE_CONFIDENCE = 0.88
+        const val SUSTAIN_CONFIDENCE = 0.75
+        const val CONFIRM_FRAMES = 3
+        const val CONFIRM_CENTS = 30.0
+
+        /** 跟踪中单帧允许的音高变化（超过视为别的音） */
+        const val FOLLOW_SEMITONES = 1.0
+
+        private const val SILENCE_DB = -120.0
+        private const val MIN_FLOOR_DB = -95.0
+        private const val MAX_FLOOR_DB = -35.0
     }
 }

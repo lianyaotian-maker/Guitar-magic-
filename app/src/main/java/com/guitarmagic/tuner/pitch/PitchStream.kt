@@ -25,6 +25,12 @@ class PitchStream(
 
     val noiseFloorDb: Double get() = tracker.noiseFloorDb
 
+    var sensitivity: Sensitivity
+        get() = tracker.sensitivity
+        set(value) {
+            tracker.sensitivity = value
+        }
+
     /** 清空窗口与识别状态（保留噪声底估计）。 */
     fun reset() {
         window.fill(0f)
@@ -37,8 +43,14 @@ class PitchStream(
 
     /**
      * 送入恰好 [hopSize] 个采样（-1..1）。窗口填满之前返回 null。
+     * @param minHz/maxHz 允许识别的音域
      */
-    fun processHop(hop: FloatArray, nowMillis: Long): PitchTracker.Output? {
+    fun processHop(
+        hop: FloatArray,
+        nowMillis: Long,
+        minHz: Double = 0.0,
+        maxHz: Double = Double.MAX_VALUE,
+    ): PitchTracker.Output? {
         require(hop.size >= hopSize)
         System.arraycopy(window, hopSize, window, 0, frameSize - hopSize)
         val offset = frameSize - hopSize
@@ -47,6 +59,6 @@ class PitchStream(
         }
         filled = minOf(frameSize, filled + hopSize)
         if (filled < frameSize) return null
-        return tracker.process(window, nowMillis)
+        return tracker.process(window, nowMillis, minHz, maxHz)
     }
 }

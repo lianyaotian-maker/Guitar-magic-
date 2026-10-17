@@ -287,6 +287,8 @@ class UiSmokeTest {
         var flats: Boolean? = null
         var haptics: Boolean? = null
         var a4 = 0.0
+        var sensitivity: com.guitarmagic.tuner.pitch.Sensitivity? = null
+        var mode: com.guitarmagic.tuner.pitch.DetectionMode? = null
         rule.setContent {
             TunerTheme {
                 SettingsContent(
@@ -294,9 +296,15 @@ class UiSmokeTest {
                     onSetA4 = { a4 = it },
                     onSetUseFlats = { flats = it },
                     onSetHaptics = { haptics = it },
+                    onSetSensitivity = { sensitivity = it },
+                    onSetDetectionMode = { mode = it },
                 )
             }
         }
+        rule.onNodeWithTag("sensitivity_HIGH").performScrollTo().performClick()
+        assertEquals(com.guitarmagic.tuner.pitch.Sensitivity.HIGH, sensitivity)
+        rule.onNodeWithTag("mode_CHROMATIC").performScrollTo().performClick()
+        assertEquals(com.guitarmagic.tuner.pitch.DetectionMode.CHROMATIC, mode)
         rule.onNodeWithTag("flats").performScrollTo().performClick()
         assertEquals(true, flats)
         rule.onNodeWithTag("a4Plus").performScrollTo().performClick()

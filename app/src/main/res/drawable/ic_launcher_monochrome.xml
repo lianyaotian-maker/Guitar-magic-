@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主题图标（单色）：系统会用主题色着色 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M30,30.5 L78,30.5" android:strokeWidth="2.6" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
+    <path android:pathData="M35,26 L35,86" android:strokeWidth="3.2" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
+    <path android:pathData="M42.6,26 L42.6,86" android:strokeWidth="2.8" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
+    <path
+        android:pathData="M50.2,26 L50.2,30 q3.4,4.5 0,9 t0,9 t0,9 t0,9 t0,9 t0,9 L50.2,86"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+    <path android:pathData="M57.8,26 L57.8,86" android:strokeWidth="1.9" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
+    <path android:pathData="M65.4,26 L65.4,86" android:strokeWidth="1.5" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
+    <path android:pathData="M73,26 L73,86" android:strokeWidth="1.2" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
+    <path android:pathData="M80,36 Q80,42 86,42 Q80,42 80,48 Q80,42 74,42 Q80,42 80,36 Z" android:fillColor="#FFFFFFFF" />
+</vector>

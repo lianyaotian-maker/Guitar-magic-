@@ -1,27 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 半圆刻度 + 指针 -->
+<!-- Guitar Magic 图标：六根琴弦（低音弦更粗），中间一根正在振动并发光，右上角一颗星光 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- 琴枕与品丝 -->
+    <path android:pathData="M30,30.5 L78,30.5" android:strokeWidth="2.6" android:strokeColor="#E6F5F5F4" android:strokeLineCap="round" />
+    <path android:pathData="M31,49 L77,49" android:strokeWidth="1.2" android:strokeColor="#40FFFFFF" android:strokeLineCap="round" />
+    <path android:pathData="M31,67 L77,67" android:strokeWidth="1.2" android:strokeColor="#40FFFFFF" android:strokeLineCap="round" />
+    <!-- 缠弦（6、5 弦）：古铜色 -->
+    <path android:pathData="M35,26 L35,86" android:strokeWidth="3.2" android:strokeColor="#FFE9C46A" android:strokeLineCap="round" />
+    <path android:pathData="M42.6,26 L42.6,86" android:strokeWidth="2.8" android:strokeColor="#FFE9C46A" android:strokeLineCap="round" />
+    <!-- 振动的 4 弦：外发光 + 正弦波 -->
     <path
-        android:pathData="M32,64 A22,22 0 0,1 76,64"
-        android:strokeWidth="4"
-        android:strokeColor="#FFFFFFFF"
+        android:pathData="M50.2,26 L50.2,30 q3.4,4.5 0,9 t0,9 t0,9 t0,9 t0,9 t0,9 L50.2,86"
+        android:strokeWidth="7"
+        android:strokeColor="#5567E8F9"
         android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:fillColor="#00000000" />
     <path
-        android:pathData="M54,38 L54,44"
-        android:strokeWidth="3"
-        android:strokeColor="#FF7BE495"
-        android:strokeLineCap="round" />
+        android:pathData="M50.2,26 L50.2,30 q3.4,4.5 0,9 t0,9 t0,9 t0,9 t0,9 t0,9 L50.2,86"
+        android:strokeWidth="2.4"
+        android:strokeColor="#FFA5F3FC"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+    <!-- 素弦（3、2、1 弦）：银色 -->
+    <path android:pathData="M57.8,26 L57.8,86" android:strokeWidth="1.9" android:strokeColor="#FFE5E7EB" android:strokeLineCap="round" />
+    <path android:pathData="M65.4,26 L65.4,86" android:strokeWidth="1.5" android:strokeColor="#FFE5E7EB" android:strokeLineCap="round" />
+    <path android:pathData="M73,26 L73,86" android:strokeWidth="1.2" android:strokeColor="#FFE5E7EB" android:strokeLineCap="round" />
+    <!-- 星光 -->
     <path
-        android:pathData="M54,64 L62,46"
-        android:strokeWidth="3.5"
-        android:strokeColor="#FF7BE495"
-        android:strokeLineCap="round" />
+        android:pathData="M80,36 Q80,42 86,42 Q80,42 80,48 Q80,42 74,42 Q80,42 80,36 Z"
+        android:fillColor="#FFFDE68A" />
     <path
-        android:pathData="M54,64 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0"
-        android:fillColor="#FFFFFFFF" />
+        android:pathData="M83,52.5 Q83,55 85.5,55 Q83,55 83,57.5 Q83,55 80.5,55 Q83,55 83,52.5 Z"
+        android:fillColor="#CCFDE68A" />
 </vector>
