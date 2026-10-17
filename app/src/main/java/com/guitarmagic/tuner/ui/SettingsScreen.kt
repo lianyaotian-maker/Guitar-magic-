@@ -8,18 +8,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.guitarmagic.tuner.BuildConfig
 import com.guitarmagic.tuner.TunerUiState
 import com.guitarmagic.tuner.TunerViewModel
+import com.guitarmagic.tuner.core.TuneTolerance
 import com.guitarmagic.tuner.pitch.DetectionMode
 import com.guitarmagic.tuner.pitch.Sensitivity
 import com.guitarmagic.tuner.ui.ios.IosDivider
@@ -41,6 +45,8 @@ fun SettingsTab(viewModel: TunerViewModel, modifier: Modifier = Modifier) {
         onSetHaptics = viewModel::setHapticsEnabled,
         onSetSensitivity = viewModel::setSensitivity,
         onSetDetectionMode = viewModel::setDetectionMode,
+        onSetChime = viewModel::setChimeEnabled,
+        onSetTolerance = viewModel::setTolerance,
         modifier = modifier,
     )
 }
@@ -54,13 +60,18 @@ fun SettingsContent(
     modifier: Modifier = Modifier,
     onSetSensitivity: (Sensitivity) -> Unit = {},
     onSetDetectionMode: (DetectionMode) -> Unit = {},
+    onSetChime: (Boolean) -> Unit = {},
+    onSetTolerance: (TuneTolerance) -> Unit = {},
 ) {
     val colors = LocalIosColors.current
+    // 平板、横屏时内容限制在合适宽度并居中
     Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+      Column(Modifier.widthIn(max = 680.dp).fillMaxWidth()) {
         IosLargeTitle("设置")
         Column(
             verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -115,15 +126,49 @@ fun SettingsContent(
                 }
             }
 
-            IosSection(header = "反馈") {
+            IosSection(
+                header = "调准精度",
+                footer = "偏差在所选范围内即显示“已调准”。±2 适合录音、演出前精调；±10 适合快速粗调。",
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    IosSegmentedControl(
+                        options = TuneTolerance.entries.map { it.label },
+                        selectedIndex = TuneTolerance.entries.indexOf(state.tolerance),
+                        onSelect = { onSetTolerance(TuneTolerance.entries[it]) },
+                        tags = TuneTolerance.entries.map { "tolerance_${it.name}" },
+                    )
+                }
+            }
+
+            IosSection(header = "调准反馈") {
+                IosRow(
+                    title = "调准时提示音",
+                    subtitle = "某根弦调准时发出清脆的“叮”",
+                    trailing = {
+                        IosSwitch(
+                            checked = state.chimeEnabled,
+                            onCheckedChange = onSetChime,
+                            modifier = Modifier.testTag("chimeSwitch"),
+                        )
+                    },
+                )
+                IosDivider()
                 IosRow(
                     title = "调准时振动",
                     subtitle = "某根弦调准时手机轻振一下",
-                    trailing = { IosSwitch(checked = state.hapticsEnabled, onCheckedChange = onSetHaptics) },
+                    trailing = {
+                        IosSwitch(
+                            checked = state.hapticsEnabled,
+                            onCheckedChange = onSetHaptics,
+                            modifier = Modifier.testTag("hapticsSwitch"),
+                        )
+                    },
                 )
             }
 
             IosSection(header = "使用小贴士") {
+                Tip("调音页右上角的“引导”可以从 6 弦开始逐根调音，调准一根自动跳到下一根。")
+                IosDivider()
                 Tip("把手机放在离吉他 20–50 厘米的地方，每次清晰地拨一根弦。")
                 IosDivider()
                 Tip("每次只拨一根弦，让它自然延音，指针稳定后再拧弦钮。")
@@ -143,6 +188,7 @@ fun SettingsContent(
                 IosRow(title = "隐私", value = "不录音、不上传")
             }
         }
+      }
     }
 }
 

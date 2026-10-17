@@ -86,4 +86,42 @@ class TunerViewModelTest {
         assertNull(vm.saveCustomTuning(null, "x", listOf(1, 45, 50, 54, 57, 62)))
         assertTrue(vm.state.value.customTunings.isEmpty())
     }
+    @Test
+    fun guidedMode_locksFirstString_andExitsOnUnlock() {
+        val vm = newViewModel()
+        vm.setGuided(true)
+        assertTrue(vm.state.value.guided)
+        assertEquals(0, vm.state.value.lockedString)
+        vm.toggleLock(3)
+        assertEquals(3, vm.state.value.lockedString)
+        assertTrue(vm.state.value.guided)
+        vm.toggleLock(3)
+        assertNull(vm.state.value.lockedString)
+        assertFalse(vm.state.value.guided)
+    }
+
+    @Test
+    fun switchingTuning_clearsReading_andRestartsGuide() {
+        val vm = newViewModel()
+        vm.setGuided(true)
+        vm.toggleLock(4)
+        vm.setTuning(Tuning.DROP_D)
+        assertEquals(Tuning.DROP_D, vm.state.value.tuning)
+        assertEquals(0, vm.state.value.lockedString)
+        assertNull(vm.state.value.frequency)
+        assertNull(vm.state.value.assignedString)
+        assertTrue(vm.state.value.tunedStrings.isEmpty())
+    }
+
+    @Test
+    fun chimeAndTolerance_persist() {
+        val vm = newViewModel()
+        assertTrue(vm.state.value.chimeEnabled)
+        assertEquals(com.guitarmagic.tuner.core.TuneTolerance.STANDARD, vm.state.value.tolerance)
+        vm.setChimeEnabled(false)
+        vm.setTolerance(com.guitarmagic.tuner.core.TuneTolerance.STRICT)
+        val reloaded = newViewModel()
+        assertFalse(reloaded.state.value.chimeEnabled)
+        assertEquals(com.guitarmagic.tuner.core.TuneTolerance.STRICT, reloaded.state.value.tolerance)
+    }
 }

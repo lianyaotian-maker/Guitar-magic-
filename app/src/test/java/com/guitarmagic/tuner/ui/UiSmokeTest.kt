@@ -343,4 +343,124 @@ class UiSmokeTest {
         rule.waitForIdle()
         rule.onNodeWithText("设置").assertIsDisplayed()
     }
+
+    @Test
+    fun tuner_guidedModeBanner_andToggle() {
+        val toggles = ArrayList<Boolean>()
+        var state by mutableStateOf(TunerUiState(listening = true))
+        rule.setContent {
+            TunerTheme {
+                TunerContent(
+                    state = state,
+                    onOpenTunings = {}, onSetA4 = {}, onToggleString = {}, onPlayString = {},
+                    onRetry = {}, onResetProgress = {},
+                    onToggleGuided = { toggles += it },
+                )
+            }
+        }
+        rule.onNodeWithTag("guidedButton").performClick()
+        assertEquals(listOf(true), toggles)
+        state = state.copy(guided = true, lockedString = 0)
+        rule.waitForIdle()
+        rule.onNodeWithText("逐根引导 · 请拨 6弦 E2").assertIsDisplayed()
+        rule.onNodeWithText("引导中").assertIsDisplayed()
+        rule.onNodeWithText("退出").performClick()
+        assertEquals(listOf(true, false), toggles)
+    }
+
+    @Test
+    fun tuner_targetStringMode_halfStepDownWithStandardE_isNotInTune() {
+        // 选了降半音，但 6 弦仍是 E2：应提示偏高，而不是误显示“已调准”
+        val state = TunerUiState(
+            listening = true,
+            tuning = Tuning.HALF_STEP_DOWN,
+            frequency = e2,
+            assignedString = 0,
+            useFlats = true,
+        )
+        rule.setContent {
+            TunerTheme {
+                TunerContent(
+                    state = state,
+                    onOpenTunings = {}, onSetA4 = {}, onToggleString = {}, onPlayString = {},
+                    onRetry = {}, onResetProgress = {},
+                )
+            }
+        }
+        rule.onNodeWithText("偏高 · 请调松").assertIsDisplayed()
+        rule.onNodeWithText("标准音 E♭2").assertIsDisplayed()
+    }
+
+    @Test
+    fun settings_toleranceAndChime() {
+        var tolerance: com.guitarmagic.tuner.core.TuneTolerance? = null
+        var chime: Boolean? = null
+        rule.setContent {
+            TunerTheme {
+                SettingsContent(
+                    state = TunerUiState(),
+                    onSetA4 = {}, onSetUseFlats = {}, onSetHaptics = {},
+                    onSetChime = { chime = it },
+                    onSetTolerance = { tolerance = it },
+                )
+            }
+        }
+        rule.onNodeWithTag("tolerance_STRICT").performScrollTo().performClick()
+        assertEquals(com.guitarmagic.tuner.core.TuneTolerance.STRICT, tolerance)
+        rule.onNodeWithTag("chimeSwitch").performScrollTo().performClick()
+        assertEquals(false, chime)
+    }
+
+    @Test
+    fun metronome_favoritesTrainerAndCues() {
+        var added = 0
+        var removed: Int? = null
+        var applied: Int? = null
+        var trainer: Boolean? = null
+        var flash: Boolean? = null
+        var vibrate: Boolean? = null
+        var stepDelta = 0
+        var state by mutableStateOf(MetronomeUiState(config = MetronomeConfig(bpm = 100), favorites = listOf(80, 120)))
+        rule.setContent {
+            TunerTheme {
+                MetronomeContent(
+                    state = state,
+                    visualProvider = { null },
+                    onToggle = {}, onChangeBpm = {}, onSetBpm = { applied = it }, onSetBeats = {},
+                    onSetSubdivision = {}, onSetAccent = {}, onTap = {},
+                    onAddFavorite = { added++ },
+                    onRemoveFavorite = { removed = it },
+                    onSetTrainer = { trainer = it },
+                    onChangeTrainerStep = { stepDelta += it },
+                    onSetFlash = { flash = it },
+                    onSetVibrate = { vibrate = it },
+                )
+            }
+        }
+        rule.onNodeWithTag("fav_120").performScrollTo().performClick()
+        assertEquals(120, applied)
+        rule.onNodeWithTag("favAdd").performScrollTo().performClick()
+        assertEquals(1, added)
+        rule.onNodeWithTag("fav_80").performScrollTo().performTouchInput { longClick() }
+        rule.waitForIdle()
+        rule.onNodeWithText("删除收藏").assertIsDisplayed()
+        rule.onNodeWithText("删除").performClick()
+        assertEquals(80, removed)
+
+        rule.onNodeWithTag("trainerSwitch").performScrollTo().performClick()
+        assertEquals(true, trainer)
+        state = state.copy(config = state.config.copy(trainer = com.guitarmagic.tuner.metronome.SpeedTrainer(enabled = true)))
+        rule.waitForIdle()
+        rule.onNodeWithTag("trainerStepPlus").performScrollTo().performClick()
+        assertEquals(1, stepDelta)
+        rule.onNodeWithTag("flashSwitch").performScrollTo().performClick()
+        assertEquals(true, flash)
+        rule.onNodeWithTag("vibrateSwitch").performScrollTo().performClick()
+        assertEquals(true, vibrate)
+
+        // 训练中显示进度；闪屏开启时播放状态不崩溃
+        state = state.copy(running = true, trainingFromBpm = 100, flash = true)
+        rule.waitForIdle()
+        rule.onNodeWithText("速度训练中", substring = true).assertIsDisplayed()
+    }
 }

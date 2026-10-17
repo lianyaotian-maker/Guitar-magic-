@@ -45,4 +45,33 @@ object ToneSynth {
         for (i in 0 until length) out[i] = (buffer[i] * gain).toFloat()
         return out
     }
+
+    /**
+     * 调准提示音：清脆的“叮”（钟声般的非整数倍泛音，快速衰减），约 0.3 秒。
+     * 音高高于吉他识别音域，不会被当成琴声。
+     */
+    fun chime(sampleRate: Int, peak: Double = 0.45): FloatArray {
+        val length = (0.32 * sampleRate).toInt()
+        val partials = doubleArrayOf(1.0, 2.76, 5.40)
+        val amps = doubleArrayOf(1.0, 0.35, 0.12)
+        val decays = doubleArrayOf(14.0, 22.0, 34.0)
+        val base = 1975.5 // B6
+        val attack = (0.002 * sampleRate).toInt().coerceAtLeast(1)
+        val buffer = DoubleArray(length)
+        var maxAbs = 0.0
+        for (i in 0 until length) {
+            val t = i.toDouble() / sampleRate
+            var v = 0.0
+            for (k in partials.indices) {
+                val f = base * partials[k]
+                if (f >= sampleRate * 0.45) continue
+                v += amps[k] * exp(-decays[k] * t) * sin(2 * PI * f * t)
+            }
+            val env = min(1.0, i.toDouble() / attack) * min(1.0, (length - 1 - i) / (0.02 * sampleRate))
+            buffer[i] = v * env
+            maxAbs = max(maxAbs, kotlin.math.abs(buffer[i]))
+        }
+        val gain = if (maxAbs > 0) peak / maxAbs else 0.0
+        return FloatArray(length) { (buffer[it] * gain).toFloat() }
+    }
 }

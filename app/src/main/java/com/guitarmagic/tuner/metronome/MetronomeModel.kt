@@ -14,15 +14,40 @@ enum class Subdivision(val ticksPerBeat: Int, val label: String) {
     SIXTEENTH(4, "十六分"),
 }
 
+/**
+ * 速度训练：每 [everyBars] 小节自动加快 [stepBpm]，直到 [targetBpm]。
+ */
+data class SpeedTrainer(
+    val enabled: Boolean = false,
+    val stepBpm: Int = 2,
+    val everyBars: Int = 4,
+    val targetBpm: Int = 160,
+) {
+    fun normalized(): SpeedTrainer = copy(
+        stepBpm = stepBpm.coerceIn(MIN_STEP, MAX_STEP),
+        everyBars = everyBars.coerceIn(MIN_BARS, MAX_BARS),
+        targetBpm = targetBpm.coerceIn(MetronomeConfig.MIN_BPM, MetronomeConfig.MAX_BPM),
+    )
+
+    companion object {
+        const val MIN_STEP = 1
+        const val MAX_STEP = 20
+        const val MIN_BARS = 1
+        const val MAX_BARS = 32
+    }
+}
+
 data class MetronomeConfig(
     val bpm: Int = 100,
     val beatsPerBar: Int = 4,
     val subdivision: Subdivision = Subdivision.NONE,
     val accentFirst: Boolean = true,
+    val trainer: SpeedTrainer = SpeedTrainer(),
 ) {
     fun normalized(): MetronomeConfig = copy(
         bpm = bpm.coerceIn(MIN_BPM, MAX_BPM),
         beatsPerBar = beatsPerBar.coerceIn(MIN_BEATS, MAX_BEATS),
+        trainer = trainer.normalized(),
     )
 
     companion object {
@@ -94,6 +119,11 @@ class ClickScheduler(
     private var lastTickExact = Double.NaN
     private var beat = 0
     private var sub = 0
+    private var barsCompleted = 0L
+
+    /** 速度训练让速度改变时回调（在音频线程调用）。 */
+    @Volatile
+    var onTempoChanged: ((Int) -> Unit)? = null
     private var beatSerial = -1L
 
     private val voices = ArrayList<Voice>()
@@ -153,6 +183,18 @@ class ClickScheduler(
         if (sub >= config.subdivision.ticksPerBeat) {
             sub = 0
             beat = (beat + 1) % config.beatsPerBar
+            if (beat == 0) onBarCompleted()
+        }
+    }
+
+    private fun onBarCompleted() {
+        barsCompleted++
+        val trainer = config.trainer
+        if (!trainer.enabled || config.bpm >= trainer.targetBpm) return
+        if (barsCompleted % trainer.everyBars == 0L) {
+            val next = (config.bpm + trainer.stepBpm).coerceAtMost(trainer.targetBpm)
+            config = config.copy(bpm = next)
+            onTempoChanged?.invoke(next)
         }
     }
 
@@ -175,6 +217,30 @@ class ClickScheduler(
             nextTickExact = maxOf(lastTickExact + intervalFrames(next), position.toDouble())
         }
     }
+}
+
+/** 常用速度收藏：最多 [MAX] 个，去重并按从慢到快排列。存储格式为逗号分隔。 */
+object BpmFavorites {
+    const val MAX = 8
+
+    fun add(list: List<Int>, bpm: Int): List<Int> {
+        val v = bpm.coerceIn(MetronomeConfig.MIN_BPM, MetronomeConfig.MAX_BPM)
+        if (v in list) return list
+        if (list.size >= MAX) return list
+        return (list + v).sorted()
+    }
+
+    fun remove(list: List<Int>, bpm: Int): List<Int> = list - bpm
+
+    fun encode(list: List<Int>): String = list.joinToString(",")
+
+    fun decode(text: String?): List<Int> =
+        text.orEmpty().split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in MetronomeConfig.MIN_BPM..MetronomeConfig.MAX_BPM }
+            .distinct()
+            .sorted()
+            .take(MAX)
 }
 
 /** 敲击测速：连续点击按钮，根据最近几次的间隔计算 BPM。 */

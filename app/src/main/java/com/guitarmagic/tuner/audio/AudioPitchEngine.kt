@@ -37,6 +37,22 @@ class AudioPitchEngine(private val context: Context) {
     @Volatile
     private var suppressUntil = 0L
 
+    /** 短暂暂停（例如播放调准提示音时）：期间丢弃麦克风数据，但保留识别状态，之后继续跟踪。 */
+    @Volatile
+    private var pauseUntil = 0L
+
+    @Volatile
+    private var resetRequested = false
+
+    fun pauseFor(millis: Long) {
+        pauseUntil = maxOf(pauseUntil, SystemClock.elapsedRealtime() + millis)
+    }
+
+    /** 清空当前识别状态（例如切换调弦预设时，旧读数不再有意义）。 */
+    fun resetRecognition() {
+        resetRequested = true
+    }
+
     /** 持续屏蔽识别（例如节拍器正在运行）。 */
     @Volatile
     var externallySuppressed = false
@@ -127,6 +143,14 @@ class AudioPitchEngine(private val context: Context) {
                 }
                 if (!loopContext.isActive) break
                 val now = SystemClock.elapsedRealtime()
+                if (resetRequested) {
+                    resetRequested = false
+                    stream.reset()
+                }
+                if (now < pauseUntil) {
+                    stream.clearWindow()
+                    continue
+                }
                 if (externallySuppressed || now < suppressUntil) {
                     // 屏蔽期间丢弃麦克风数据并清空识别状态，参考音/滴答声不会残留到之后的读数里
                     stream.reset()

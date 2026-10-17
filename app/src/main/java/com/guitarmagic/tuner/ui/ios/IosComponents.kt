@@ -86,17 +86,29 @@ fun Modifier.iosClickable(
     enabled: Boolean = true,
     role: Role? = Role.Button,
     onLongClick: (() -> Unit)? = null,
+    /** 按下时缩小到的比例（1 = 不缩放）。较大的按钮用 0.94 左右，带弹性回弹。 */
+    pressScale: Float = 1f,
+    pressedAlpha: Float = 0.35f,
     onClick: () -> Unit,
 ): Modifier = composed {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val alpha by animateFloatAsState(
-        targetValue = if (pressed) 0.35f else 1f,
+        targetValue = if (pressed) pressedAlpha else 1f,
         animationSpec = tween(if (pressed) 60 else 260),
         label = "pressAlpha",
     )
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressScale else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 700f),
+        label = "pressScale",
+    )
     this
-        .graphicsLayer { this.alpha = alpha }
+        .graphicsLayer {
+            this.alpha = alpha
+            scaleX = scale
+            scaleY = scale
+        }
         .combinedClickable(
             interactionSource = interaction,
             indication = null,
@@ -322,7 +334,7 @@ fun IosFilledButton(
             .heightIn(min = 50.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(if (enabled) color ?: colors.blue else colors.fill)
-            .iosClickable(enabled = enabled, onClick = onClick)
+            .iosClickable(enabled = enabled, pressScale = 0.97f, pressedAlpha = 0.7f, onClick = onClick)
             .padding(horizontal = 20.dp),
     ) {
         Text(text, style = IosType.headline, color = if (enabled) Color.White else colors.tertiaryLabel)
@@ -345,7 +357,7 @@ fun IosTintedButton(
         modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(c.copy(alpha = if (colors.isDark) 0.24f else 0.13f))
-            .iosClickable(onClick = onClick)
+            .iosClickable(pressScale = 0.95f, pressedAlpha = 0.6f, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
         Text(text, style = style, color = c, maxLines = 1)
@@ -370,7 +382,7 @@ fun IosCircleButton(
             .size(size)
             .clip(CircleShape)
             .background(fillColor)
-            .iosClickable(onClick = onClick),
+            .iosClickable(pressScale = 0.92f, pressedAlpha = 0.6f, onClick = onClick),
     ) {
         Box(
             Modifier

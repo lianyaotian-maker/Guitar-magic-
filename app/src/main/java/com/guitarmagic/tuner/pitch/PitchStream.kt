@@ -31,6 +31,15 @@ class PitchStream(
             tracker.sensitivity = value
         }
 
+    /** 只清空音频窗口与滤波器状态，保留识别状态（用于短暂暂停后继续跟踪）。 */
+    fun clearWindow() {
+        window.fill(0f)
+        filled = 0
+        highPass1.reset()
+        highPass2.reset()
+        lowPass.reset()
+    }
+
     /** 清空窗口与识别状态（保留噪声底估计）。 */
     fun reset() {
         window.fill(0f)

@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -36,9 +39,12 @@ fun PermissionScreen(
     onOpenSettings: () -> Unit,
 ) {
     val colors = LocalIosColors.current
+    // 内容较少时居中；横屏等高度不够时可以上下滚动
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .widthIn(max = 480.dp)
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -89,5 +95,6 @@ fun PermissionScreen(
         } else {
             IosFilledButton("允许使用麦克风", onRequest, modifier = Modifier.fillMaxWidth())
         }
+    }
     }
 }

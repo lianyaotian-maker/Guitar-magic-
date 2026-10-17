@@ -51,6 +51,8 @@ class PitchTracker(
         val noiseFloorDb: Double = -120.0,
         /** 是否正在跟踪一个琴弦音 */
         val tracking: Boolean = false,
+        /** 拨弦编号：每确认一次新的拨弦加 1（同一次持续发声期间不变） */
+        val noteId: Long = 0,
     )
 
     private enum class State { IDLE, TRACKING }
@@ -65,6 +67,7 @@ class PitchTracker(
     private var lastGoodAt = Long.MIN_VALUE
     private var frameIndex = 0L
     private var onsetUntil = -1L
+    private var noteId = 0L
 
     /** 当前估计的噪声底（dBFS）。 */
     var noiseFloorDb: Double = initialNoiseFloorDb
@@ -169,6 +172,7 @@ class PitchTracker(
             levelDb = db,
             noiseFloorDb = noiseFloorDb,
             tracking = state == State.TRACKING,
+            noteId = noteId,
         )
     }
 
@@ -186,6 +190,7 @@ class PitchTracker(
         candidates.clear()
         current = value
         state = State.TRACKING
+        noteId++
         lastGoodAt = nowMillis
     }
 

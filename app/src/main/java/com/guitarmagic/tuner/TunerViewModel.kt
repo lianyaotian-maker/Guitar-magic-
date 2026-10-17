@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.guitarmagic.tuner.audio.AudioPitchEngine
 import com.guitarmagic.tuner.core.CustomTunings
+import com.guitarmagic.tuner.core.StringAssigner
+import com.guitarmagic.tuner.core.TuneTolerance
 import com.guitarmagic.tuner.core.TuneProgress
 import com.guitarmagic.tuner.data.SettingsRepository
 import com.guitarmagic.tuner.pitch.DetectionMode
@@ -53,6 +55,12 @@ data class TunerUiState(
     val metronomeRunning: Boolean = false,
     val sensitivity: Sensitivity = Sensitivity.MEDIUM,
     val detectionMode: DetectionMode = DetectionMode.GUITAR,
+    /** 自动判断出的、当前正在调的弦（null 表示尚未判断） */
+    val assignedString: Int? = null,
+    val tolerance: TuneTolerance = TuneTolerance.STANDARD,
+    val chimeEnabled: Boolean = true,
+    /** 逐根引导调音：依次锁定每一根还没调准的弦 */
+    val guided: Boolean = false,
 ) {
     /** 识别是否被暂停 */
     val paused: Boolean get() = playingToneMidi != null || metronomeRunning
@@ -63,9 +71,9 @@ data class TunerUiState(
 /** 界面需要显示的全部数值，由 [TunerUiState] 推导。 */
 data class TunerDisplay(
     val frequency: Double? = null,
-    /** 最近的标准音 */
+    /** 最近的标准音（显示在大字音名上） */
     val note: NoteInfo? = null,
-    /** 指针偏差（音分）：自动模式下相对最近标准音，锁定模式下相对目标弦 */
+    /** 指针偏差（音分）：吉他琴弦模式或锁定时相对目标弦，半音阶模式相对最近标准音 */
     val cents: Double? = null,
     /** 指针所参照的标准音及其理论频率 */
     val referenceLabel: String? = null,
@@ -75,8 +83,12 @@ data class TunerDisplay(
     /** 高亮弦的目标音与偏差，用于“请调紧/调松”提示 */
     val stringLabel: String? = null,
     val stringCents: Double? = null,
+    /** 偏差在此范围内算已调准 */
+    val toleranceCents: Double = IN_TUNE_CENTS,
+    /** 指针是否相对目标弦（而不是最近的标准音） */
+    val targetMode: Boolean = true,
 ) {
-    val inTune: Boolean get() = cents != null && abs(cents) <= IN_TUNE_CENTS
+    val inTune: Boolean get() = cents != null && abs(cents) <= toleranceCents
 
     companion object {
         const val IN_TUNE_CENTS = 5.0
@@ -84,14 +96,18 @@ data class TunerDisplay(
 }
 
 fun TunerUiState.toDisplay(): TunerDisplay {
-    val f = frequency ?: return TunerDisplay(activeString = lockedString)
+    val tol = tolerance.cents
+    val targetMode = lockedString != null || detectionMode == DetectionMode.GUITAR
+    val f = frequency ?: return TunerDisplay(activeString = lockedString, toleranceCents = tol, targetMode = targetMode)
     val note = MusicTheory.nearestNote(f, a4, useFlats)
-    val stringIndex = lockedString ?: tuning.closestString(f, a4)
+    val stringIndex = lockedString
+        ?: assignedString?.takeIf { it in 0 until Tuning.STRING_COUNT }
+        ?: tuning.closestString(f, a4)
     val stringMidi = tuning.strings[stringIndex]
     val stringTarget = MusicTheory.midiToFrequency(stringMidi, a4)
     val stringCents = MusicTheory.cents(f, stringTarget)
     val stringLabel = "${Tuning.STRING_COUNT - stringIndex}弦 ${MusicTheory.label(stringMidi, useFlats)}"
-    return if (lockedString != null) {
+    return if (targetMode) {
         TunerDisplay(
             frequency = f,
             note = note,
@@ -101,6 +117,8 @@ fun TunerUiState.toDisplay(): TunerDisplay {
             activeString = stringIndex,
             stringLabel = stringLabel,
             stringCents = stringCents,
+            toleranceCents = tol,
+            targetMode = true,
         )
     } else {
         TunerDisplay(
@@ -112,6 +130,8 @@ fun TunerUiState.toDisplay(): TunerDisplay {
             activeString = stringIndex,
             stringLabel = stringLabel,
             stringCents = stringCents,
+            toleranceCents = tol,
+            targetMode = false,
         )
     }
 }
@@ -122,6 +142,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     private val engine = AudioPitchEngine(application)
     private val tonePlayer = ReferenceTonePlayer()
     private val progress = TuneProgress()
+    private val assigner = StringAssigner()
+    private var guideJob: Job? = null
 
     private val _state = MutableStateFlow(
         settings.customTunings.let { custom ->
@@ -133,6 +155,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 hapticsEnabled = settings.hapticsEnabled,
                 sensitivity = settings.sensitivity,
                 detectionMode = settings.detectionMode,
+                tolerance = settings.tolerance,
+                chimeEnabled = settings.chimeEnabled,
             )
         },
     )
@@ -194,26 +218,94 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onPitch(event: AudioPitchEngine.Event.Pitch) {
+        val out = event.output
+        val frequency = out.frequency
+        val before = _state.value
+        val fresh = frequency != null && !out.holding && !event.suppressed
+        // 判断这次拨弦对应哪根弦（同一次持续发声中保持不变）
+        val assigned: Int? = if (fresh) {
+            synchronized(assigner) {
+                val locked = before.lockedString
+                if (locked != null) {
+                    assigner.observeLocked(locked, frequency!!, out.noteId)
+                    locked
+                } else {
+                    assigner.assign(frequency!!, out.noteId, before.tuning, before.a4)
+                }
+            }
+        } else {
+            null
+        }
         val updated = _state.updateAndGet {
             it.copy(
-                frequency = event.output.frequency,
-                holding = event.output.holding,
-                levelDb = event.output.levelDb,
+                frequency = frequency,
+                holding = out.holding,
+                levelDb = out.levelDb,
+                assignedString = assigned ?: if (frequency == null) null else it.assignedString,
             )
         }
         val display = updated.toDisplay()
-        val fresh = !updated.holding && updated.frequency != null
-        val newlyTuned = synchronized(progress) {
-            val result = progress.update(
+        val newlyTunedIndex = synchronized(progress) {
+            progress.update(
                 if (fresh) display.activeString else null,
                 if (fresh) display.stringCents else null,
+                updated.tolerance.cents,
             )
-            if (result != null) progress.tunedStrings else null
         }
-        if (newlyTuned != null) {
-            _state.update { it.copy(tunedStrings = newlyTuned) }
-            _stringTuned.tryEmit(newlyTuned.size)
+        if (newlyTunedIndex != null) onStringTuned(newlyTunedIndex)
+    }
+
+    private fun onStringTuned(index: Int) {
+        val tuned = synchronized(progress) { progress.tunedStrings }
+        _state.update { it.copy(tunedStrings = tuned) }
+        _stringTuned.tryEmit(index)
+        val s = _state.value
+        if (s.chimeEnabled) {
+            // 播放“叮”的同时短暂暂停识别（保留跟踪状态），避免提示音被当成琴声
+            engine.pauseFor(ReferenceTonePlayer.CHIME_MILLIS + 100)
+            tonePlayer.playChime()
         }
+        if (s.guided && s.lockedString == index) {
+            guideJob?.cancel()
+            guideJob = viewModelScope.launch {
+                delay(GUIDE_ADVANCE_MILLIS)
+                val now = _state.value
+                if (!now.guided || now.lockedString != index) return@launch
+                val next = synchronized(progress) { progress.nextUntuned(index + 1) }
+                if (next == null) {
+                    _state.update { it.copy(guided = false, lockedString = null) }
+                } else {
+                    _state.update { it.copy(lockedString = next, frequency = null, holding = false) }
+                    engine.resetRecognition()
+                }
+            }
+        }
+    }
+
+    /** 开启/关闭逐根引导调音：从第一根还没调准的弦开始依次锁定。 */
+    fun setGuided(enabled: Boolean) {
+        guideJob?.cancel()
+        if (enabled) {
+            var start = synchronized(progress) { progress.nextUntuned(0) }
+            if (start == null) {
+                resetProgress()
+                start = 0
+            }
+            _state.update { it.copy(guided = true, lockedString = start, frequency = null, holding = false) }
+        } else {
+            _state.update { it.copy(guided = false, lockedString = null) }
+        }
+        engine.resetRecognition()
+    }
+
+    fun setChimeEnabled(value: Boolean) {
+        settings.chimeEnabled = value
+        _state.update { it.copy(chimeEnabled = value) }
+    }
+
+    fun setTolerance(value: TuneTolerance) {
+        settings.tolerance = value
+        _state.update { it.copy(tolerance = value) }
     }
 
     fun stopListening() {
@@ -244,15 +336,38 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setTuning(tuning: Tuning) {
+        val previous = _state.value
         settings.selectedTuningId = tuning.id
-        _state.update { it.copy(tuning = tuning, lockedString = null) }
+        // 琴弦本身没有变：记住它们还停在旧预设的音高上，避免切换后认错弦
+        synchronized(assigner) {
+            if (previous.tuning.strings != tuning.strings) assigner.onTuningChanged(previous.tuning, previous.a4)
+        }
+        // 旧读数相对新预设没有意义，立即清空
+        engine.resetRecognition()
+        guideJob?.cancel()
+        _state.update {
+            it.copy(
+                tuning = tuning,
+                lockedString = if (it.guided) 0 else null,
+                frequency = null,
+                holding = false,
+                assignedString = null,
+            )
+        }
         resetProgress()
     }
 
-    /** 点击某根弦：锁定；再次点击同一根弦：恢复自动识别。 */
+    /** 点击某根弦：锁定；再次点击同一根弦：恢复自动识别（引导模式下即退出引导）。 */
     fun toggleLock(index: Int) {
         if (index !in 0 until Tuning.STRING_COUNT) return
-        _state.update { it.copy(lockedString = if (it.lockedString == index) null else index) }
+        guideJob?.cancel()
+        val s = _state.value
+        if (s.lockedString == index) {
+            _state.update { it.copy(lockedString = null, guided = false) }
+        } else {
+            _state.update { it.copy(lockedString = index) }
+        }
+        engine.resetRecognition()
     }
 
     fun resetProgress() {
@@ -334,5 +449,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         /** 参考音结束后继续屏蔽的时间，等房间里的余音消散 */
         const val TONE_TAIL_MILLIS = 400L
+
+        /** 引导模式下，一根弦调准后停留多久再跳到下一根 */
+        const val GUIDE_ADVANCE_MILLIS = 900L
     }
 }

@@ -19,12 +19,24 @@ class ReferenceTonePlayer {
     private var released = false
 
     fun play(frequency: Double) {
-        if (released || frequency <= 0) return
+        if (frequency <= 0) return
+        playPcm { ToneSynth.pluck(frequency, SAMPLE_RATE, durationSeconds = TONE_MILLIS / 1000.0) }
+    }
+
+    /** 播放调准提示音（“叮”）。 */
+    fun playChime() {
+        playPcm { chimePcm }
+    }
+
+    private val chimePcm: FloatArray by lazy { ToneSynth.chime(SAMPLE_RATE) }
+
+    private fun playPcm(generate: () -> FloatArray) {
+        if (released) return
         executor.execute {
             if (released) return@execute
             releaseTrack()
             try {
-                val pcm = ToneSynth.pluck(frequency, SAMPLE_RATE, durationSeconds = TONE_MILLIS / 1000.0)
+                val pcm = generate()
                 val shorts = ShortArray(pcm.size) { (pcm[it] * 32767f).toInt().toShort() }
                 val t = AudioTrack.Builder()
                     .setAudioAttributes(
@@ -51,7 +63,7 @@ class ReferenceTonePlayer {
                     t.release()
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "参考音播放失败", e)
+                Log.w(TAG, "播放失败", e)
             }
         }
     }
@@ -85,5 +97,8 @@ class ReferenceTonePlayer {
 
         /** 参考音时长（毫秒）。 */
         const val TONE_MILLIS = 2000L
+
+        /** 提示音时长（毫秒，含少量余量）。 */
+        const val CHIME_MILLIS = 350L
     }
 }

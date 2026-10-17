@@ -17,6 +17,15 @@ class TuneProgress(
 
     val allTuned: Boolean get() = tuned.all { it }
 
+    /** 从 [from] 开始（含）往后找第一根还没调准的弦（循环查找），全部调准时返回 null。 */
+    fun nextUntuned(from: Int = 0): Int? {
+        for (k in 0 until stringCount) {
+            val i = (from + k).mod(stringCount)
+            if (!tuned[i]) return i
+        }
+        return null
+    }
+
     fun reset() {
         tuned.fill(false)
         streakString = -1
@@ -27,9 +36,9 @@ class TuneProgress(
      * 输入一帧：当前对应的弦及其偏差；无信号时传 null。
      * @return 若这一帧让某根弦“新”变为已调准，返回该弦下标，否则返回 null
      */
-    fun update(stringIndex: Int?, cents: Double?): Int? {
+    fun update(stringIndex: Int?, cents: Double?, tolerance: Double = toleranceCents): Int? {
         if (stringIndex == null || cents == null || stringIndex !in 0 until stringCount ||
-            kotlin.math.abs(cents) > toleranceCents
+            kotlin.math.abs(cents) > tolerance
         ) {
             streakString = -1
             streak = 0

@@ -2,7 +2,10 @@ package com.guitarmagic.tuner.data
 
 import android.content.Context
 import com.guitarmagic.tuner.core.CustomTunings
+import com.guitarmagic.tuner.core.TuneTolerance
+import com.guitarmagic.tuner.metronome.BpmFavorites
 import com.guitarmagic.tuner.metronome.MetronomeConfig
+import com.guitarmagic.tuner.metronome.SpeedTrainer
 import com.guitarmagic.tuner.metronome.Subdivision
 import com.guitarmagic.tuner.pitch.DetectionMode
 import com.guitarmagic.tuner.pitch.MusicTheory
@@ -43,6 +46,26 @@ class SettingsRepository(context: Context) {
         get() = DetectionMode.entries.firstOrNull { it.name == prefs.getString(KEY_DETECTION_MODE, null) } ?: DetectionMode.GUITAR
         set(value) = prefs.edit().putString(KEY_DETECTION_MODE, value.name).apply()
 
+    var chimeEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CHIME, true)
+        set(value) = prefs.edit().putBoolean(KEY_CHIME, value).apply()
+
+    var tolerance: TuneTolerance
+        get() = TuneTolerance.entries.firstOrNull { it.name == prefs.getString(KEY_TOLERANCE, null) } ?: TuneTolerance.STANDARD
+        set(value) = prefs.edit().putString(KEY_TOLERANCE, value.name).apply()
+
+    var metronomeFavorites: List<Int>
+        get() = BpmFavorites.decode(prefs.getString(KEY_FAVORITES, null))
+        set(value) = prefs.edit().putString(KEY_FAVORITES, BpmFavorites.encode(value)).apply()
+
+    var metronomeFlash: Boolean
+        get() = prefs.getBoolean(KEY_FLASH, false)
+        set(value) = prefs.edit().putBoolean(KEY_FLASH, value).apply()
+
+    var metronomeVibrate: Boolean
+        get() = prefs.getBoolean(KEY_VIBRATE, false)
+        set(value) = prefs.edit().putBoolean(KEY_VIBRATE, value).apply()
+
     var permissionRequested: Boolean
         get() = prefs.getBoolean(KEY_PERMISSION_REQUESTED, false)
         set(value) = prefs.edit().putBoolean(KEY_PERMISSION_REQUESTED, value).apply()
@@ -54,12 +77,22 @@ class SettingsRepository(context: Context) {
             subdivision = Subdivision.entries.firstOrNull { it.name == prefs.getString(KEY_SUBDIVISION, null) }
                 ?: Subdivision.NONE,
             accentFirst = prefs.getBoolean(KEY_ACCENT, true),
+            trainer = SpeedTrainer(
+                enabled = prefs.getBoolean(KEY_TRAINER_ON, false),
+                stepBpm = prefs.getInt(KEY_TRAINER_STEP, 2),
+                everyBars = prefs.getInt(KEY_TRAINER_BARS, 4),
+                targetBpm = prefs.getInt(KEY_TRAINER_TARGET, 160),
+            ),
         ).normalized()
         set(value) = prefs.edit()
             .putInt(KEY_BPM, value.bpm)
             .putInt(KEY_BEATS, value.beatsPerBar)
             .putString(KEY_SUBDIVISION, value.subdivision.name)
             .putBoolean(KEY_ACCENT, value.accentFirst)
+            .putBoolean(KEY_TRAINER_ON, value.trainer.enabled)
+            .putInt(KEY_TRAINER_STEP, value.trainer.stepBpm)
+            .putInt(KEY_TRAINER_BARS, value.trainer.everyBars)
+            .putInt(KEY_TRAINER_TARGET, value.trainer.targetBpm)
             .apply()
 
     private companion object {
@@ -75,5 +108,14 @@ class SettingsRepository(context: Context) {
         const val KEY_BEATS = "metronome_beats"
         const val KEY_SUBDIVISION = "metronome_subdivision"
         const val KEY_ACCENT = "metronome_accent"
+        const val KEY_TRAINER_ON = "trainer_enabled"
+        const val KEY_TRAINER_STEP = "trainer_step"
+        const val KEY_TRAINER_BARS = "trainer_bars"
+        const val KEY_TRAINER_TARGET = "trainer_target"
+        const val KEY_FAVORITES = "metronome_favorites"
+        const val KEY_FLASH = "metronome_flash"
+        const val KEY_VIBRATE = "metronome_vibrate"
+        const val KEY_CHIME = "chime"
+        const val KEY_TOLERANCE = "tolerance"
     }
 }

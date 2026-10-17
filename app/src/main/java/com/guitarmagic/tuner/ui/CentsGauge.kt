@@ -37,6 +37,7 @@ fun CentsGauge(
     inTune: Boolean,
     dimmed: Boolean,
     modifier: Modifier = Modifier,
+    toleranceCents: Double = 5.0,
 ) {
     val target = (cents ?: 0.0).toFloat().coerceIn(-MAX_CENTS, MAX_CENTS)
     val animated by animateFloatAsState(
@@ -55,6 +56,8 @@ fun CentsGauge(
     val needleColor by animateColorAsState(needleTarget, Motion.standard(Motion.SHORT * 2), label = "needleColor")
     val zoneAlpha by animateFloatAsState(if (inTune) 0.85f else 0.28f, Motion.standard(), label = "zone")
     val needleAlpha by animateFloatAsState(if (dimmed) 0.45f else 1f, Motion.standard(), label = "needleAlpha")
+    // 绿色区域宽度随“调准精度”平滑变化
+    val zoneCents by animateFloatAsState(toleranceCents.toFloat().coerceIn(1f, 20f), Motion.standard(), label = "zoneWidth")
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 12.sp, color = tickColor)
 
@@ -68,7 +71,7 @@ fun CentsGauge(
         }
 
         // 绿色“已调准”区域（±5 音分）
-        val zoneAngle = 5f / MAX_CENTS * MAX_ANGLE
+        val zoneAngle = zoneCents / MAX_CENTS * MAX_ANGLE
         val zoneRadius = radius - 4.dp.toPx()
         drawArc(
             color = tunerColors.inTune.copy(alpha = zoneAlpha),
@@ -88,7 +91,7 @@ fun CentsGauge(
                 c % 10 == 0 -> 12.dp.toPx()
                 else -> 7.dp.toPx()
             }
-            val base = if (abs(c) <= 5) tunerColors.inTune else tickColor
+            val base = if (abs(c) <= zoneCents) tunerColors.inTune else tickColor
             val proximity = if (cents == null) 0f else (1f - abs(c - animated) / 12f).coerceIn(0f, 1f)
             val alpha = (if (c % 10 == 0) 0.75f else 0.4f) + 0.25f * proximity
             drawLine(

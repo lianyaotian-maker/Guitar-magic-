@@ -167,3 +167,69 @@ class MetronomeModelTest {
         assertEquals("Prestissimo 最急板", TempoMarkings.of(250))
     }
 }
+
+class SpeedTrainerAndFavoritesTest {
+
+    private val sr = 48000
+
+    @Test
+    fun trainer_increasesTempoEveryNBars_untilTarget() {
+        val config = MetronomeConfig(
+            bpm = 120, beatsPerBar = 4,
+            trainer = SpeedTrainer(enabled = true, stepBpm = 10, everyBars = 2, targetBpm = 145),
+        )
+        val s = ClickScheduler(sr, config)
+        val changes = ArrayList<Int>()
+        s.onTempoChanged = { changes += it }
+        val buf = FloatArray(1024)
+        repeat(sr * 30 / 1024) { s.render(buf) }
+        assertEquals(listOf(130, 140, 145), changes)
+        assertEquals(145, s.currentConfig.bpm)
+    }
+
+    @Test
+    fun trainer_disabled_keepsTempo() {
+        val s = ClickScheduler(sr, MetronomeConfig(bpm = 100))
+        var changed = false
+        s.onTempoChanged = { changed = true }
+        val buf = FloatArray(1024)
+        repeat(sr * 10 / 1024) { s.render(buf) }
+        assertTrue(!changed)
+    }
+
+    @Test
+    fun trainer_tickSpacingFollowsNewTempo() {
+        val config = MetronomeConfig(bpm = 60, beatsPerBar = 2, trainer = SpeedTrainer(enabled = true, stepBpm = 20, everyBars = 1, targetBpm = 100))
+        val s = ClickScheduler(sr, config)
+        val ticks = ArrayList<Tick>()
+        val buf = FloatArray(500)
+        repeat(sr * 4 / 500) { s.render(buf) { ticks += it } }
+        // 第一小节（2 拍）按 60 BPM，之后变为 80 BPM（间隔 0.75 秒）
+        assertEquals(sr.toLong(), ticks[1].frame - ticks[0].frame)
+        assertEquals(sr * 3L / 4, ticks[2].frame - ticks[1].frame)
+    }
+
+    @Test
+    fun trainerConfig_isClamped() {
+        val t = SpeedTrainer(stepBpm = 99, everyBars = 0, targetBpm = 999).normalized()
+        assertEquals(SpeedTrainer.MAX_STEP, t.stepBpm)
+        assertEquals(SpeedTrainer.MIN_BARS, t.everyBars)
+        assertEquals(MetronomeConfig.MAX_BPM, t.targetBpm)
+    }
+
+    @Test
+    fun favorites() {
+        var list = emptyList<Int>()
+        list = BpmFavorites.add(list, 120)
+        list = BpmFavorites.add(list, 80)
+        list = BpmFavorites.add(list, 120)
+        list = BpmFavorites.add(list, 999)
+        assertEquals(listOf(80, 120, 250), list)
+        assertEquals(list, BpmFavorites.decode(BpmFavorites.encode(list)))
+        assertEquals(listOf(80, 250), BpmFavorites.remove(list, 120))
+        assertEquals(listOf(60, 90), BpmFavorites.decode("90, x,60,,90,5"))
+        var full = emptyList<Int>()
+        for (b in 40..200 step 10) full = BpmFavorites.add(full, b)
+        assertEquals(BpmFavorites.MAX, full.size)
+    }
+}

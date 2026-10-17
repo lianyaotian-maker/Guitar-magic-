@@ -5,7 +5,9 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -41,11 +43,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -127,6 +131,7 @@ fun TunerTab(viewModel: TunerViewModel, onStopMetronome: () -> Unit, modifier: M
         onStopMetronome = onStopMetronome,
         onRetry = viewModel::retry,
         onResetProgress = viewModel::resetProgress,
+        onToggleGuided = viewModel::setGuided,
         modifier = modifier,
     )
 
@@ -157,6 +162,7 @@ private sealed interface Banner {
     data class Tone(val label: String) : Banner
     data object Metronome : Banner
     data object AllTuned : Banner
+    data class Guided(val label: String) : Banner
     data class Error(val message: String) : Banner
 }
 
@@ -173,76 +179,139 @@ fun TunerContent(
     modifier: Modifier = Modifier,
     onStopTone: () -> Unit = {},
     onStopMetronome: () -> Unit = {},
+    onToggleGuided: (Boolean) -> Unit = {},
 ) {
     val display = state.toDisplay()
     var a4DialogOpen by rememberSaveable { mutableStateOf(false) }
+    val lockedLabel = state.lockedString?.let {
+        "${Tuning.STRING_COUNT - it}弦 ${MusicTheory.label(state.tuning.strings[it], state.useFlats)}"
+    }
     val banner: Banner? = when {
         state.playingToneMidi != null -> Banner.Tone(MusicTheory.label(state.playingToneMidi, state.useFlats))
         state.metronomeRunning -> Banner.Metronome
         state.error != null -> Banner.Error(state.error)
         state.allTuned -> Banner.AllTuned
+        state.guided && lockedLabel != null -> Banner.Guided(lockedLabel)
         else -> null
     }
-
-    // 根据可用高度自适应：矮屏手机上缩小表盘和音名；特别矮时整页改为可滚动，保证内容不被截断
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val compact = maxHeight < 700.dp
-        val scrollable = maxHeight < 600.dp
-        val reserved = if (compact) 510.dp else 570.dp
-        val gaugeMax = maxOf(80.dp, (maxWidth - 64.dp) / 2)
-        val gaugeHeight = if (scrollable) gaugeMax.coerceAtMost(140.dp) else (maxHeight - reserved).coerceIn(80.dp, gaugeMax)
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            IosLargeTitle(
-                title = "调音",
-                trailing = {
-                    IosTintedButton(
-                        text = "A4 · ${state.a4.roundToInt()} Hz",
-                        onClick = { a4DialogOpen = true },
-                        modifier = Modifier.testTag("a4Button"),
-                    )
-                },
+    val trailingButtons: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GuidedPill(state.guided) { onToggleGuided(!state.guided) }
+            IosTintedButton(
+                text = "A4 · ${state.a4.roundToInt()} Hz",
+                onClick = { a4DialogOpen = true },
+                modifier = Modifier.testTag("a4Button"),
             )
-            TuningSelector(state, onOpenTunings)
-            BannerArea(banner, onStopTone, onStopMetronome, onResetProgress, onRetry)
+        }
+    }
+    val hint: @Composable () -> Unit = {
+        AnimatedContent(
+            targetState = when {
+                state.guided -> "引导中 · 调准后自动跳到下一根 · 轻点其他弦可跳转"
+                state.lockedString != null -> "已锁定 ${Tuning.STRING_COUNT - state.lockedString} 弦 · 再次点击恢复自动"
+                else -> "轻点琴弦锁定 · 长按试听参考音"
+            },
+            transitionSpec = { fadeIn(Motion.standard()) togetherWith fadeOut(Motion.standard()) },
+            label = "hint",
+        ) { text ->
+            Text(text, style = IosType.footnote, color = LocalIosColors.current.secondaryLabel, textAlign = TextAlign.Center)
+        }
+    }
 
-            if (scrollable) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
-            CentsGauge(
-                cents = display.cents,
-                inTune = display.inTune,
-                dimmed = state.holding,
-                modifier = Modifier
-                    .padding(horizontal = 32.dp)
-                    .fillMaxWidth()
-                    .height(gaugeHeight),
-            )
-            NoteReadout(display, state.useFlats, dimmed = state.holding, compact = compact)
-            Spacer(Modifier.height(6.dp))
-            StatusLine(state, display)
-            if (scrollable) Spacer(Modifier.height(16.dp)) else Spacer(Modifier.weight(1f))
-
-            InfoCard(display)
-            Spacer(Modifier.height(18.dp))
-            StringRow(state, display, onToggleString, onPlayString)
-            Spacer(Modifier.height(10.dp))
-            AnimatedContent(
-                targetState = state.lockedString,
-                transitionSpec = { fadeIn(Motion.standard()) togetherWith fadeOut(Motion.standard()) },
-                label = "hint",
-            ) { locked ->
-                Text(
-                    text = locked?.let { "已锁定 ${Tuning.STRING_COUNT - it} 弦 · 再次点击恢复自动" }
-                        ?: "轻点琴弦锁定 · 长按试听参考音",
-                    style = IosType.footnote,
-                    color = LocalIosColors.current.secondaryLabel,
-                )
+    BoxWithConstraints(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        val landscape = maxWidth > maxHeight && maxWidth >= 560.dp
+        if (landscape) {
+            // 横屏：左侧表盘与音名，右侧调弦、信息与琴弦
+            val paneWidth = maxWidth / 2
+            val gaugeHeight = minOf((paneWidth - 64.dp) / 2, maxHeight * 0.36f).coerceAtLeast(70.dp)
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
+                ) {
+                    Box(Modifier.weight(1f)) { TuningSelector(state, onOpenTunings) }
+                    trailingButtons()
+                }
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    ) {
+                        CentsGauge(
+                            cents = display.cents,
+                            inTune = display.inTune,
+                            dimmed = state.holding,
+                            toleranceCents = display.toleranceCents,
+                            modifier = Modifier
+                                .padding(horizontal = 32.dp)
+                                .fillMaxWidth()
+                                .height(gaugeHeight),
+                        )
+                        NoteReadout(display, state.useFlats, dimmed = state.holding, compact = true)
+                        StatusLine(state, display)
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 8.dp),
+                    ) {
+                        BannerArea(banner, onStopTone, onStopMetronome, onResetProgress, onRetry, onToggleGuided)
+                        InfoCard(display)
+                        Spacer(Modifier.height(14.dp))
+                        StringRow(state, display, onToggleString, onPlayString)
+                        Spacer(Modifier.height(8.dp))
+                        hint()
+                    }
+                }
             }
-            Spacer(Modifier.height(12.dp))
+        } else {
+            // 竖屏：根据可用高度自适应；平板上限制内容宽度并居中；特别矮时整页可滚动
+            val contentWidth = minOf(maxWidth, 600.dp)
+            val compact = maxHeight < 700.dp
+            val scrollable = maxHeight < 600.dp
+            val reserved = if (compact) 510.dp else 570.dp
+            val gaugeMax = maxOf(80.dp, (contentWidth - 64.dp) / 2)
+            val gaugeHeight = if (scrollable) gaugeMax.coerceAtMost(140.dp) else (maxHeight - reserved).coerceIn(80.dp, gaugeMax)
+
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxSize()
+                    .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                IosLargeTitle(title = "调音", trailing = trailingButtons)
+                TuningSelector(state, onOpenTunings)
+                BannerArea(banner, onStopTone, onStopMetronome, onResetProgress, onRetry, onToggleGuided)
+
+                if (scrollable) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
+                CentsGauge(
+                    cents = display.cents,
+                    inTune = display.inTune,
+                    dimmed = state.holding,
+                    toleranceCents = display.toleranceCents,
+                    modifier = Modifier
+                        .padding(horizontal = 32.dp)
+                        .fillMaxWidth()
+                        .height(gaugeHeight),
+                )
+                NoteReadout(display, state.useFlats, dimmed = state.holding, compact = compact)
+                Spacer(Modifier.height(6.dp))
+                StatusLine(state, display)
+                if (scrollable) Spacer(Modifier.height(16.dp)) else Spacer(Modifier.weight(1f))
+
+                InfoCard(display)
+                Spacer(Modifier.height(18.dp))
+                StringRow(state, display, onToggleString, onPlayString)
+                Spacer(Modifier.height(10.dp))
+                hint()
+                Spacer(Modifier.height(12.dp))
+            }
         }
     }
 
@@ -254,6 +323,34 @@ fun TunerContent(
                 a4DialogOpen = false
             },
             onDismiss = { a4DialogOpen = false },
+        )
+    }
+}
+
+/** “引导”开关胶囊：开启时为实心蓝色。 */
+@Composable
+private fun GuidedPill(on: Boolean, onClick: () -> Unit) {
+    val colors = LocalIosColors.current
+    val bg by animateColorAsState(
+        if (on) colors.blue else colors.gray.copy(alpha = if (colors.isDark) 0.28f else 0.14f),
+        Motion.standard(),
+        label = "guidedBg",
+    )
+    val fg by animateColorAsState(if (on) Color.White else colors.label, Motion.standard(), label = "guidedFg")
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .iosClickable(pressScale = 0.94f, pressedAlpha = 0.6f, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+            .testTag("guidedButton"),
+    ) {
+        Text(
+            if (on) "引导中" else "引导",
+            style = IosType.subheadline.copy(fontWeight = FontWeight.SemiBold),
+            color = fg,
+            maxLines = 1,
         )
     }
 }
@@ -298,6 +395,7 @@ private fun BannerArea(
     onStopMetronome: () -> Unit,
     onResetProgress: () -> Unit,
     onRetry: () -> Unit,
+    onToggleGuided: (Boolean) -> Unit,
 ) {
     val colors = LocalIosColors.current
     AnimatedContent(
@@ -314,6 +412,7 @@ private fun BannerArea(
             is Banner.Tone -> BannerRow("♪  正在播放参考音 ${b.label}，暂停识别", colors.blue, "停止", onStopTone)
             Banner.Metronome -> BannerRow("节拍器运行中，调音已暂停", colors.orange, "停止节拍器", onStopMetronome)
             Banner.AllTuned -> BannerRow("🎉 6 根弦全部调准", colors.green, "重新开始", onResetProgress)
+            is Banner.Guided -> BannerRow("逐根引导 · 请拨 ${b.label}", colors.blue, "退出") { onToggleGuided(false) }
             is Banner.Error -> BannerRow(b.message, colors.red, "重试", onRetry)
         }
     }
@@ -590,17 +689,17 @@ private fun StatusLine(state: TunerUiState, display: TunerDisplay) {
     }
 }
 
-/** 是否应提示“偏高”。自动模式下离最近的弦超过半音时，按目标弦判断方向。 */
+/** 是否应提示“偏高”。半音阶模式下离最近的弦超过半音时，按目标弦判断方向。 */
 private fun statusDirectionHigh(state: TunerUiState, display: TunerDisplay): Boolean {
     val stringCents = display.stringCents
-    if (state.lockedString == null && stringCents != null && abs(stringCents) > 50) return stringCents > 0
+    if (!display.targetMode && stringCents != null && abs(stringCents) > 50) return stringCents > 0
     return (display.cents ?: 0.0) > 0
 }
 
-/** 音准了；但自动模式下如果这个音不是任何一根弦的目标音，再提示离最近的弦还差多少。 */
+/** 已调准。半音阶模式下如果这个音不是任何一根弦的目标音，再提示离最近的弦还差多少。 */
 private fun inTuneText(state: TunerUiState, display: TunerDisplay): String {
     val stringCents = display.stringCents
-    if (state.lockedString == null && stringCents != null && abs(stringCents) > 50 && display.note != null) {
+    if (!display.targetMode && stringCents != null && abs(stringCents) > 50 && display.note != null) {
         val direction = if (stringCents > 0) "偏高，请调松" else "偏低，请调紧"
         return "✓ ${display.note.label} 已调准\n${display.stringLabel} $direction（相差 ${abs(stringCents).roundToInt()} 音分）"
     }
@@ -610,7 +709,15 @@ private fun inTuneText(state: TunerUiState, display: TunerDisplay): String {
 private fun statusText(state: TunerUiState, display: TunerDisplay): String {
     val cents = display.cents ?: return ""
     val stringCents = display.stringCents
-    if (state.lockedString == null && stringCents != null && abs(stringCents) > 50) {
+    if (display.targetMode) {
+        // 相对正在调的弦：差得多时说明是哪根弦、差多少
+        if (abs(cents) > 50) {
+            val direction = if (cents > 0) "偏高，请调松" else "偏低，请调紧"
+            return "${display.stringLabel} $direction\n（相差 ${abs(cents).roundToInt()} 音分）"
+        }
+        return if (cents > 0) "偏高 · 请调松" else "偏低 · 请调紧"
+    }
+    if (stringCents != null && abs(stringCents) > 50) {
         val direction = if (stringCents > 0) "偏高，请调松" else "偏低，请调紧"
         return "${display.stringLabel} $direction\n（相差 ${abs(stringCents).roundToInt()} 音分）"
     }
@@ -635,7 +742,7 @@ private fun StringRow(
         state.tuning.strings.forEachIndexed { index, midi ->
             val locked = state.lockedString == index
             val active = display.activeString == index && display.frequency != null
-            val activeInTune = active && display.stringCents?.let { abs(it) <= TunerDisplay.IN_TUNE_CENTS } == true
+            val activeInTune = active && display.stringCents?.let { abs(it) <= display.toleranceCents } == true
             val tuned = index in state.tunedStrings
             val playing = state.playingToneMidi == midi
 
@@ -668,6 +775,29 @@ private fun StringRow(
             )
             val scale by animateFloatAsState(if (active || locked || playing) 1.08f else 1f, Motion.bouncy(), label = "stringScale")
 
+            // 这根弦刚调准：绿色光环向外扩散一次
+            val ripple = remember { Animatable(0f) }
+            var wasTuned by remember { mutableStateOf(tuned) }
+            LaunchedEffect(tuned) {
+                if (tuned && !wasTuned) {
+                    ripple.snapTo(0f)
+                    ripple.animateTo(1f, tween(750, easing = FastOutSlowInEasing))
+                }
+                wasTuned = tuned
+            }
+            // 6 根全部调准：从 6 弦到 1 弦依次弹跳庆祝
+            val celebrate = remember { Animatable(1f) }
+            var wasAllTuned by remember { mutableStateOf(state.allTuned) }
+            LaunchedEffect(state.allTuned) {
+                if (state.allTuned && !wasAllTuned) {
+                    delay(index * 70L)
+                    celebrate.animateTo(1.2f, tween(130))
+                    celebrate.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 500f))
+                }
+                wasAllTuned = state.allTuned
+            }
+            val rippleColor = colors.green
+
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.weight(1f),
@@ -677,8 +807,19 @@ private fun StringRow(
                         .fillMaxWidth()
                         .aspectRatio(1f)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
+                            val s = scale * celebrate.value
+                            scaleX = s
+                            scaleY = s
+                        }
+                        .drawBehind {
+                            val p = ripple.value
+                            if (p > 0f && p < 1f) {
+                                drawCircle(
+                                    color = rippleColor.copy(alpha = (1f - p) * 0.8f),
+                                    radius = size.minDimension / 2 * (1f + 0.7f * p),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() * (1f - p * 0.5f)),
+                                )
+                            }
                         },
                 ) {
                     Box(
@@ -694,12 +835,28 @@ private fun StringRow(
                             )
                             .testTag("string$index"),
                     ) {
-                        Text(
-                            MusicTheory.label(midi, state.useFlats),
-                            color = content,
-                            style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
-                            maxLines = 1,
-                        )
+                        // 切换预设时，6 根弦的音名从左到右依次翻转更新
+                        AnimatedContent(
+                            targetState = MusicTheory.label(midi, state.useFlats),
+                            transitionSpec = {
+                                val delayMs = index * 45
+                                (
+                                    slideInVertically(tween(260, delayMillis = delayMs, easing = Motion.Emphasized)) { it } +
+                                        fadeIn(tween(200, delayMillis = delayMs))
+                                    ) togetherWith (
+                                    slideOutVertically(tween(200, delayMillis = delayMs, easing = Motion.Emphasized)) { -it } +
+                                        fadeOut(tween(140, delayMillis = delayMs))
+                                    )
+                            },
+                            label = "stringLabel",
+                        ) { label ->
+                            Text(
+                                label,
+                                color = content,
+                                style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                            )
+                        }
                     }
                     androidx.compose.animation.AnimatedVisibility(
                         visible = tuned,

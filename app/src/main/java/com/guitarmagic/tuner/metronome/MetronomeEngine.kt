@@ -41,6 +41,10 @@ class MetronomeEngine {
     @Volatile
     private var latestConfig = MetronomeConfig()
 
+    /** 速度训练让速度改变时回调（在音频线程调用）。 */
+    @Volatile
+    var onTempoChanged: ((Int) -> Unit)? = null
+
     /** 是否正在播放（已经停止但仍在释放资源的旧线程不算）。 */
     val isRunning: Boolean get() = synchronized(lock) { isRunningLocked() }
 
@@ -139,6 +143,10 @@ class MetronomeEngine {
             return
         }
         val newScheduler = ClickScheduler(rate, latestConfig)
+        newScheduler.onTempoChanged = { bpm ->
+            latestConfig = latestConfig.copy(bpm = bpm)
+            onTempoChanged?.invoke(bpm)
+        }
         synchronized(lock) {
             if (generation != myGeneration) {
                 newTrack.release()
