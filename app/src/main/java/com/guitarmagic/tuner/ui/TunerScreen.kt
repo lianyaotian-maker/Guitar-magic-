@@ -23,6 +23,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -182,14 +184,20 @@ fun TunerContent(
         else -> null
     }
 
-    // 根据可用高度自适应：矮屏手机上缩小表盘和音名，保证所有内容都能完整显示
+    // 根据可用高度自适应：矮屏手机上缩小表盘和音名；特别矮时整页改为可滚动，保证内容不被截断
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val compact = maxHeight < 640.dp
-        val reserved = if (compact) 450.dp else 540.dp
-        val gaugeMax = maxOf(70.dp, (maxWidth - 64.dp) / 2)
-        val gaugeHeight = (maxHeight - reserved).coerceIn(70.dp, gaugeMax)
+        val compact = maxHeight < 700.dp
+        val scrollable = maxHeight < 600.dp
+        val reserved = if (compact) 510.dp else 570.dp
+        val gaugeMax = maxOf(80.dp, (maxWidth - 64.dp) / 2)
+        val gaugeHeight = if (scrollable) gaugeMax.coerceAtMost(140.dp) else (maxHeight - reserved).coerceIn(80.dp, gaugeMax)
 
-        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             IosLargeTitle(
                 title = "调音",
                 trailing = {
@@ -203,7 +211,7 @@ fun TunerContent(
             TuningSelector(state, onOpenTunings)
             BannerArea(banner, onStopTone, onStopMetronome, onResetProgress, onRetry)
 
-            Spacer(Modifier.weight(1f))
+            if (scrollable) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
             CentsGauge(
                 cents = display.cents,
                 inTune = display.inTune,
@@ -216,7 +224,7 @@ fun TunerContent(
             NoteReadout(display, state.useFlats, dimmed = state.holding, compact = compact)
             Spacer(Modifier.height(6.dp))
             StatusLine(state, display)
-            Spacer(Modifier.weight(1f))
+            if (scrollable) Spacer(Modifier.height(16.dp)) else Spacer(Modifier.weight(1f))
 
             InfoCard(display)
             Spacer(Modifier.height(18.dp))
