@@ -15,13 +15,17 @@ class PitchSmoother(
     private val windowSize: Int = 5,
     private val jumpSemitones: Double = 0.6,
     private val confirmFrames: Int = 3,
+    private val emaAlpha: Double = 0.35,
+    private val snapSemitones: Double = 0.3,
 ) {
     private val history = ArrayDeque<Double>()
     private val pending = ArrayDeque<Double>()
+    private var ema: Double? = null
 
     fun reset() {
         history.clear()
         pending.clear()
+        ema = null
     }
 
     /** 加入一个新的检测频率，返回平滑后的频率。 */
@@ -29,7 +33,7 @@ class PitchSmoother(
         val value = toSemitones(frequency)
         if (history.isEmpty()) {
             history.addLast(value)
-            return frequency
+            return output(value)
         }
         val current = median(history)
         if (abs(value - current) > jumpSemitones) {
@@ -42,12 +46,27 @@ class PitchSmoother(
                 history.addAll(pending)
                 pending.clear()
             }
-            return fromSemitones(median(history))
+            return output(median(history))
         }
         pending.clear()
         history.addLast(value)
         while (history.size > windowSize) history.removeFirst()
-        return fromSemitones(median(history))
+        return output(median(history))
+    }
+
+    /**
+     * 中值之后再做一级指数平滑：小音量时单帧误差较大，平滑后读数更稳；
+     * 变化超过 [snapSemitones]（换音、明显拧动弦钮）时直接跳到新值，不拖尾。
+     */
+    private fun output(median: Double): Double {
+        val previous = ema
+        val next = if (previous == null || abs(median - previous) > snapSemitones) {
+            median
+        } else {
+            previous + emaAlpha * (median - previous)
+        }
+        ema = next
+        return fromSemitones(next)
     }
 
     private fun median(values: Collection<Double>): Double {

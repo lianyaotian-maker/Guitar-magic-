@@ -5,7 +5,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.material3.MaterialTheme
+import com.guitarmagic.tuner.ui.ios.LocalIosColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -45,9 +45,10 @@ fun CentsGauge(
         label = "needle",
     )
     val tunerColors = LocalTunerColors.current
-    val tickColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val ios = LocalIosColors.current
+    val tickColor = ios.secondaryLabel
     val needleTarget = when {
-        cents == null -> MaterialTheme.colorScheme.outlineVariant
+        cents == null -> ios.fill
         inTune -> tunerColors.inTune
         else -> tunerColors.offTune
     }
@@ -76,7 +77,7 @@ fun CentsGauge(
             useCenter = false,
             topLeft = Offset(center.x - zoneRadius, center.y - zoneRadius),
             size = Size(zoneRadius * 2, zoneRadius * 2),
-            style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round),
+            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round),
         )
 
         // 刻度：靠近指针的刻度稍微加亮，跟随指针流动
@@ -117,9 +118,10 @@ fun CentsGauge(
             color = color,
             start = center,
             end = point(needleAngle, radius - 10.dp.toPx()),
-            strokeWidth = 4.dp.toPx(),
+            strokeWidth = 3.dp.toPx(),
             cap = StrokeCap.Round,
         )
-        drawCircle(color = color, radius = 8.dp.toPx(), center = center)
+        drawCircle(color = color, radius = 7.dp.toPx(), center = center)
+        drawCircle(color = ios.background, radius = 2.5.dp.toPx(), center = center)
     }
 }

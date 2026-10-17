@@ -8,6 +8,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.guitarmagic.tuner.MainActivity
@@ -39,9 +41,9 @@ class AppSmokeTest {
             rule.onNodeWithText("选择调弦").assertIsDisplayed()
             rule.onNodeWithTag("createPreset").performScrollTo().performClick()
             rule.waitForIdle()
-            rule.onNodeWithTag("savePreset").performScrollTo().performClick()
+            rule.onNodeWithTag("savePreset").performClick()
             rule.waitForIdle()
-            rule.onNodeWithText("我的调弦 1 ▾").assertIsDisplayed()
+            rule.onNodeWithText("我的调弦 1").assertIsDisplayed()
 
             // 节拍器：开始、停止
             rule.onNodeWithTag("tab_METRONOME").performClick()
@@ -64,6 +66,14 @@ class AppSmokeTest {
             rule.onNodeWithTag("string0").performClick()
             rule.waitForIdle()
             rule.onNodeWithText("已锁定 6 弦", substring = true).assertIsDisplayed()
+
+            // 长按试听：显示“暂停识别”提示，可以提前停止
+            rule.onNodeWithTag("string1").performTouchInput { longClick() }
+            rule.waitForIdle()
+            rule.onNodeWithText("正在播放参考音", substring = true).assertIsDisplayed()
+            rule.onNodeWithText("停止").performClick()
+            rule.waitForIdle()
+            rule.onNodeWithText("请弹奏一根琴弦").assertIsDisplayed()
         }
     }
 

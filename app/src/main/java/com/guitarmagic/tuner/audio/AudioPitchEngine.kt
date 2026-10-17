@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.SystemClock
 import android.util.Log
+import com.guitarmagic.tuner.pitch.PitchStream
 import com.guitarmagic.tuner.pitch.PitchTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,11 +24,30 @@ import kotlinx.coroutines.launch
 class AudioPitchEngine(private val context: Context) {
 
     sealed interface Event {
-        data class Pitch(val output: PitchTracker.Output) : Event
+        /** @param suppressed 本帧被屏蔽（正在播放参考音或节拍器运行中），output 不含音高 */
+        data class Pitch(val output: PitchTracker.Output, val suppressed: Boolean = false) : Event
         data class Error(val message: String) : Event
     }
 
     private var job: Job? = null
+
+    /** 在此时间点（SystemClock.elapsedRealtime）之前屏蔽识别，用于播放参考音时。 */
+    @Volatile
+    private var suppressUntil = 0L
+
+    /** 持续屏蔽识别（例如节拍器正在运行）。 */
+    @Volatile
+    var externallySuppressed = false
+
+    /** 从现在起屏蔽识别 [millis] 毫秒（不会缩短已有的屏蔽时间）。 */
+    fun suppressFor(millis: Long) {
+        suppressUntil = maxOf(suppressUntil, SystemClock.elapsedRealtime() + millis)
+    }
+
+    /** 把屏蔽时间改为从现在起 [millis] 毫秒（可缩短，例如提前停止参考音后只留余音时间）。 */
+    fun setSuppressionFor(millis: Long) {
+        suppressUntil = SystemClock.elapsedRealtime() + millis
+    }
 
     val isRunning: Boolean get() = job?.isActive == true
 
@@ -76,16 +96,15 @@ class AudioPitchEngine(private val context: Context) {
             onEvent(Event.Error("无法打开麦克风，可能正被其他应用占用"))
             return
         }
-        val tracker = PitchTracker(sampleRate = SAMPLE_RATE)
-        val window = FloatArray(FRAME_SIZE)
+        val stream = PitchStream(sampleRate = SAMPLE_RATE, frameSize = FRAME_SIZE, hopSize = HOP_SIZE)
         val hop = ShortArray(HOP_SIZE)
+        val hopFloats = FloatArray(HOP_SIZE)
         try {
             recorder.startRecording()
             if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
                 onEvent(Event.Error("无法开始录音，可能正被其他应用占用"))
                 return
             }
-            var filled = 0
             val loopContext = currentCoroutineContext()
             while (loopContext.isActive) {
                 var read = 0
@@ -97,13 +116,17 @@ class AudioPitchEngine(private val context: Context) {
                     }
                     read += n
                 }
-                // 滑动窗口：丢掉最旧的 HOP_SIZE 个采样，追加新采样
-                System.arraycopy(window, HOP_SIZE, window, 0, FRAME_SIZE - HOP_SIZE)
-                val offset = FRAME_SIZE - HOP_SIZE
-                for (i in 0 until HOP_SIZE) window[offset + i] = hop[i] / 32768f
-                filled = minOf(FRAME_SIZE, filled + HOP_SIZE)
-                if (filled < FRAME_SIZE) continue
-                onEvent(Event.Pitch(tracker.process(window, SystemClock.elapsedRealtime())))
+                if (!loopContext.isActive) break
+                val now = SystemClock.elapsedRealtime()
+                if (externallySuppressed || now < suppressUntil) {
+                    // 屏蔽期间丢弃麦克风数据并清空识别状态，参考音/滴答声不会残留到之后的读数里
+                    stream.reset()
+                    onEvent(Event.Pitch(PitchTracker.Output(null, false, -120.0, stream.noiseFloorDb), suppressed = true))
+                    continue
+                }
+                for (i in 0 until HOP_SIZE) hopFloats[i] = hop[i] / 32768f
+                val output = stream.processHop(hopFloats, now) ?: continue
+                onEvent(Event.Pitch(output))
             }
         } finally {
             try {

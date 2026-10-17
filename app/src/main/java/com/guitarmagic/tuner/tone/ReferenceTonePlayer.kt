@@ -24,7 +24,7 @@ class ReferenceTonePlayer {
             if (released) return@execute
             releaseTrack()
             try {
-                val pcm = ToneSynth.pluck(frequency, SAMPLE_RATE)
+                val pcm = ToneSynth.pluck(frequency, SAMPLE_RATE, durationSeconds = TONE_MILLIS / 1000.0)
                 val shorts = ShortArray(pcm.size) { (pcm[it] * 32767f).toInt().toShort() }
                 val t = AudioTrack.Builder()
                     .setAudioAttributes(
@@ -79,8 +79,11 @@ class ReferenceTonePlayer {
         t.release()
     }
 
-    private companion object {
-        const val TAG = "ReferenceTonePlayer"
-        const val SAMPLE_RATE = 44100
+    companion object {
+        private const val TAG = "ReferenceTonePlayer"
+        private const val SAMPLE_RATE = 44100
+
+        /** 参考音时长（毫秒）。 */
+        const val TONE_MILLIS = 2000L
     }
 }

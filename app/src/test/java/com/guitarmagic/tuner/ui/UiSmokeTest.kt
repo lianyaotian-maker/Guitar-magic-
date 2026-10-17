@@ -4,13 +4,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -58,6 +58,7 @@ class UiSmokeTest {
         rule.onNodeWithTag("status").assertIsDisplayed()
         rule.onNodeWithText("✓ 已调准").assertIsDisplayed()
         rule.onNodeWithText("82.4 Hz").assertIsDisplayed()
+        rule.onNodeWithText("标准调弦").assertIsDisplayed()
     }
 
     @Test
@@ -100,6 +101,59 @@ class UiSmokeTest {
     }
 
     @Test
+    fun tuner_pausedWhilePlayingToneOrMetronome() {
+        var stoppedTone = 0
+        var stoppedMetronome = 0
+        var state by mutableStateOf(TunerUiState(listening = true, playingToneMidi = 40))
+        rule.setContent {
+            TunerTheme {
+                TunerContent(
+                    state = state,
+                    onOpenTunings = {}, onSetA4 = {}, onToggleString = {}, onPlayString = {},
+                    onRetry = {}, onResetProgress = {},
+                    onStopTone = { stoppedTone++ },
+                    onStopMetronome = { stoppedMetronome++ },
+                )
+            }
+        }
+        rule.onNodeWithText("正在播放参考音 E2", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("识别已暂停").assertIsDisplayed()
+        rule.onNodeWithText("停止").performClick()
+        assertEquals(1, stoppedTone)
+
+        state = state.copy(playingToneMidi = null, metronomeRunning = true)
+        rule.waitForIdle()
+        rule.onNodeWithText("节拍器运行中，调音已暂停").assertIsDisplayed()
+        rule.onNodeWithText("停止节拍器").performClick()
+        assertEquals(1, stoppedMetronome)
+
+        state = state.copy(metronomeRunning = false)
+        rule.waitForIdle()
+        rule.onNodeWithText("请弹奏一根琴弦").assertIsDisplayed()
+    }
+
+    @Test
+    fun tuner_a4Dialog() {
+        var a4 = 0.0
+        rule.setContent {
+            TunerTheme {
+                TunerContent(
+                    state = TunerUiState(listening = true),
+                    onOpenTunings = {}, onSetA4 = { a4 = it }, onToggleString = {}, onPlayString = {},
+                    onRetry = {}, onResetProgress = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("a4Button").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("基准音 A4").assertIsDisplayed()
+        rule.onNodeWithTag("a4Plus").performClick()
+        rule.onNodeWithTag("a4Plus").performClick()
+        rule.onNodeWithText("确定").performClick()
+        assertEquals(442.0, a4, 1e-9)
+    }
+
+    @Test
     fun tuningSheet_createPresetFlow() {
         var saved: Triple<String?, String, List<Int>>? = null
         rule.setContent {
@@ -117,7 +171,7 @@ class UiSmokeTest {
                 )
             }
         }
-        rule.onNodeWithText("✓ 标准调弦").assertIsDisplayed()
+        rule.onNodeWithText("标准调弦").assertIsDisplayed()
         rule.onNodeWithTag("createPreset").performScrollTo().performClick()
         rule.waitForIdle()
 
@@ -134,7 +188,7 @@ class UiSmokeTest {
         rule.onNodeWithText("确定").performClick()
         rule.waitForIdle()
 
-        rule.onNodeWithTag("savePreset").performScrollTo().performClick()
+        rule.onNodeWithTag("savePreset").performClick()
         val result = saved!!
         assertEquals(null, result.first)
         assertEquals("Open D", result.second)
@@ -142,7 +196,7 @@ class UiSmokeTest {
     }
 
     @Test
-    fun tuningSheet_listsCustomPresets_andConfirmsDelete() {
+    fun tuningSheet_editAndDeleteCustomPreset() {
         var deleted: String? = null
         val custom = Tuning("custom_1", "我的 Open D", listOf(38, 45, 50, 54, 57, 62), isCustom = true)
         rule.setContent {
@@ -154,18 +208,26 @@ class UiSmokeTest {
                 )
             }
         }
-        rule.onNodeWithText("✓ 我的 Open D").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("删除").performScrollTo().performClick()
+        rule.onNodeWithText("我的 Open D").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("编辑").performScrollTo().performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("删除预设").assertIsDisplayed()
-        rule.onNodeWithText("取消").performClick()
-        assertEquals(null, deleted)
-        rule.onNodeWithText("删除").performScrollTo().performClick()
+        rule.onNodeWithText("编辑预设").assertIsDisplayed()
+
+        rule.onNodeWithTag("deletePreset").performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("确定删除", substring = true).assertIsDisplayed()
-        // 对话框里的“删除”按钮是最后一个
-        rule.onAllNodesWithText("删除").onLast().performClick()
+        // 对话框里的“取消”是最后一个
+        rule.onAllNodesWithText("取消").onLast().performClick()
+        rule.waitForIdle()
+        assertEquals(null, deleted)
+
+        rule.onNodeWithTag("deletePreset").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("删除").performClick()
+        rule.waitForIdle()
         assertEquals("custom_1", deleted)
+        // 删除后回到列表
+        rule.onNodeWithText("选择调弦").assertIsDisplayed()
     }
 
     @Test
@@ -175,6 +237,7 @@ class UiSmokeTest {
         var beats = 0
         var sub: Subdivision? = null
         var taps = 0
+        var accent: Boolean? = null
         var state by mutableStateOf(MetronomeUiState(config = MetronomeConfig(bpm = 120)))
         val visual = MetronomeEngine.Visual(beat = 1, sub = 0, beatSerial = 5, beatProgress = 0.3f, secondsSinceTick = 0.02f)
         rule.setContent {
@@ -187,7 +250,7 @@ class UiSmokeTest {
                     onSetBpm = {},
                     onSetBeats = { beats = it },
                     onSetSubdivision = { sub = it },
-                    onSetAccent = {},
+                    onSetAccent = { accent = it },
                     onTap = { taps++ },
                 )
             }
@@ -206,14 +269,17 @@ class UiSmokeTest {
         assertEquals(Subdivision.TRIPLET, sub)
         rule.onNodeWithTag("beatsPlus").performScrollTo().performClick()
         assertEquals(5, beats)
+        rule.onNodeWithText("第一拍重音").performScrollTo()
+        rule.onNode(androidx.compose.ui.test.isToggleable()).performClick()
+        assertEquals(false, accent)
 
         // 切换到播放状态（摆锤动画、拍点）不应崩溃
         state = state.copy(running = true, config = state.config.copy(bpm = 200, beatsPerBar = 12))
         rule.waitForIdle()
-        rule.onNodeWithText("■  停止").assertIsDisplayed()
+        rule.onNodeWithText("停止").assertIsDisplayed()
         state = state.copy(running = false)
         rule.waitForIdle()
-        rule.onNodeWithText("▶  开始").assertIsDisplayed()
+        rule.onNodeWithText("开始").assertIsDisplayed()
     }
 
     @Test
@@ -233,10 +299,40 @@ class UiSmokeTest {
         }
         rule.onNodeWithTag("flats").performScrollTo().performClick()
         assertEquals(true, flats)
-        rule.onNodeWithText("+").performScrollTo().performClick()
+        rule.onNodeWithTag("a4Plus").performScrollTo().performClick()
         assertEquals(441.0, a4, 1e-9)
         rule.onNodeWithText("恢复默认 440 Hz").performScrollTo().performClick()
         assertEquals(440.0, a4, 1e-9)
-        assertTrue(haptics == null)
+        rule.onNode(androidx.compose.ui.test.isToggleable()).performScrollTo().performClick()
+        assertEquals(false, haptics)
+        assertTrue(true)
+    }
+
+    @Test
+    fun darkTheme_rendersAllScreens() {
+        var screen by mutableStateOf(0)
+        rule.setContent {
+            TunerTheme(darkTheme = true) {
+                when (screen) {
+                    0 -> TunerContent(
+                        state = TunerUiState(listening = true, frequency = e2 * 1.01),
+                        onOpenTunings = {}, onSetA4 = {}, onToggleString = {}, onPlayString = {},
+                        onRetry = {}, onResetProgress = {},
+                    )
+                    1 -> MetronomeContent(
+                        state = MetronomeUiState(), visualProvider = { null }, onToggle = {}, onChangeBpm = {},
+                        onSetBpm = {}, onSetBeats = {}, onSetSubdivision = {}, onSetAccent = {}, onTap = {},
+                    )
+                    else -> SettingsContent(state = TunerUiState(), onSetA4 = {}, onSetUseFlats = {}, onSetHaptics = {})
+                }
+            }
+        }
+        rule.onNodeWithText("调音").assertIsDisplayed()
+        screen = 1
+        rule.waitForIdle()
+        rule.onNodeWithText("节拍器").assertIsDisplayed()
+        screen = 2
+        rule.waitForIdle()
+        rule.onNodeWithText("设置").assertIsDisplayed()
     }
 }

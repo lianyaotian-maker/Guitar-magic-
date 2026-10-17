@@ -11,6 +11,8 @@ import com.guitarmagic.tuner.pitch.MusicTheory
 import com.guitarmagic.tuner.pitch.NoteInfo
 import com.guitarmagic.tuner.pitch.Tuning
 import com.guitarmagic.tuner.tone.ReferenceTonePlayer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -39,7 +42,14 @@ data class TunerUiState(
     val hapticsEnabled: Boolean = true,
     /** 本次已调准的弦 */
     val tunedStrings: Set<Int> = emptySet(),
+    /** 正在播放参考音的音高（MIDI），播放期间暂停识别；null 表示没有播放 */
+    val playingToneMidi: Int? = null,
+    /** 节拍器正在运行（此时暂停识别，避免把滴答声当成音高） */
+    val metronomeRunning: Boolean = false,
 ) {
+    /** 识别是否被暂停 */
+    val paused: Boolean get() = playingToneMidi != null || metronomeRunning
+
     val allTuned: Boolean get() = tunedStrings.size == Tuning.STRING_COUNT
 }
 
@@ -240,14 +250,49 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     fun defaultCustomName(): String = CustomTunings.defaultName(_state.value.customTunings)
 
+    private var toneJob: Job? = null
+
+    /**
+     * 播放参考音。播放期间（再加一点房间余音时间）屏蔽麦克风识别，
+     * 避免把手机自己发出的参考音误判为“已调准”。
+     */
     fun playTone(midi: Int) {
+        engine.suppressFor(ReferenceTonePlayer.TONE_MILLIS + TONE_TAIL_MILLIS)
         tonePlayer.play(MusicTheory.midiToFrequency(midi, _state.value.a4))
+        _state.update { it.copy(playingToneMidi = midi, frequency = null, holding = false) }
+        toneJob?.cancel()
+        toneJob = viewModelScope.launch {
+            delay(ReferenceTonePlayer.TONE_MILLIS + TONE_TAIL_MILLIS)
+            _state.update { it.copy(playingToneMidi = null) }
+        }
     }
 
-    fun stopTone() = tonePlayer.stop()
+    /** 提前停止参考音；只保留很短的余音屏蔽时间。 */
+    fun stopTone() {
+        tonePlayer.stop()
+        toneJob?.cancel()
+        toneJob = null
+        if (_state.value.playingToneMidi != null) {
+            engine.setSuppressionFor(TONE_TAIL_MILLIS)
+            _state.update { it.copy(playingToneMidi = null) }
+        }
+    }
+
+    /** 节拍器运行状态变化时由界面调用。 */
+    fun setMetronomeRunning(running: Boolean) {
+        engine.externallySuppressed = running
+        _state.update {
+            if (running) it.copy(metronomeRunning = true, frequency = null, holding = false) else it.copy(metronomeRunning = false)
+        }
+    }
 
     override fun onCleared() {
         engine.stop()
         tonePlayer.release()
+    }
+
+    private companion object {
+        /** 参考音结束后继续屏蔽的时间，等房间里的余音消散 */
+        const val TONE_TAIL_MILLIS = 400L
     }
 }

@@ -9,11 +9,30 @@ import org.junit.Test
 class PitchTrackerTest {
 
     @Test
-    fun quietSignal_isGated() {
+    fun belowAbsoluteMinimum_isGated() {
         val tracker = PitchTracker()
-        // 约 -66 dBFS 的 A4，低于噪声门
-        val out = tracker.process(TestSignals.sine(440.0, amplitude = 0.0007), 0)
+        // 约 -89 dBFS，低于绝对下限
+        val out = tracker.process(TestSignals.sine(440.0, amplitude = 0.00005), 0)
         assertNull(out.frequency)
+    }
+
+    @Test
+    fun quietSignal_inQuietRoom_isDetected() {
+        val tracker = PitchTracker()
+        // 约 -66 dBFS：旧版固定门限（-55 dBFS）会挡掉，新版应能识别
+        var out: PitchTracker.Output? = null
+        repeat(3) { out = tracker.process(TestSignals.sine(440.0, amplitude = 0.0007), it * 46L) }
+        assertEquals(440.0, out!!.frequency!!, 0.3)
+    }
+
+    @Test
+    fun noiseFloor_adaptsUpAndDown() {
+        val tracker = PitchTracker()
+        var t = 0L
+        repeat(100) { tracker.process(TestSignals.whiteNoise(0.01, seed = it), t); t += 46 } // 约 -45 dBFS 的噪声
+        assertTrue("floor=${tracker.noiseFloorDb}", tracker.noiseFloorDb > -50)
+        repeat(20) { tracker.process(TestSignals.whiteNoise(0.0001, seed = it), t); t += 46 } // 安静下来
+        assertTrue("floor=${tracker.noiseFloorDb}", tracker.noiseFloorDb < -80)
     }
 
     @Test

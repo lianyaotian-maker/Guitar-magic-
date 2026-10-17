@@ -18,17 +18,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,19 +36,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.guitarmagic.tuner.ui.MetronomeTab
-import com.guitarmagic.tuner.ui.Motion
 import com.guitarmagic.tuner.ui.PermissionScreen
 import com.guitarmagic.tuner.ui.SettingsTab
 import com.guitarmagic.tuner.ui.TunerTab
 import com.guitarmagic.tuner.ui.TunerTheme
+import com.guitarmagic.tuner.ui.ios.IosTabBar
+import com.guitarmagic.tuner.ui.ios.IosTabItem
+import com.guitarmagic.tuner.ui.ios.LocalIosColors
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,6 +125,8 @@ fun TunerApp(
         }
     }
     val metronomeState by metronomeViewModel.state.collectAsStateWithLifecycle()
+    // 节拍器运行时暂停调音识别，避免把滴答声当成音高
+    LaunchedEffect(metronomeState.running) { tunerViewModel.setMetronomeRunning(metronomeState.running) }
     val view = LocalView.current
     val keepScreenOn = tab == AppTab.TUNER || metronomeState.running
     DisposableEffect(view, keepScreenOn) {
@@ -142,28 +138,19 @@ fun TunerApp(
     BackHandler(enabled = tab != AppTab.TUNER) { tabIndex = AppTab.TUNER.ordinal }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = LocalIosColors.current.background,
         bottomBar = {
-            NavigationBar {
-                AppTab.entries.forEach { t ->
-                    NavigationBarItem(
-                        selected = t == tab,
-                        onClick = { tabIndex = t.ordinal },
-                        icon = { Icon(painterResource(t.icon), contentDescription = null) },
-                        label = { Text(t.label) },
-                        modifier = Modifier.testTag("tab_${t.name}"),
-                    )
-                }
-            }
+            IosTabBar(
+                items = AppTab.entries.map { IosTabItem(it.label, it.icon, "tab_${it.name}") },
+                selectedIndex = tab.ordinal,
+                onSelect = { tabIndex = it },
+            )
         },
     ) { padding ->
         AnimatedContent(
             targetState = tab,
-            transitionSpec = {
-                val forward = targetState.ordinal > initialState.ordinal
-                (fadeIn(Motion.standard()) + slideInHorizontally(Motion.standard()) { w -> if (forward) w / 8 else -w / 8 }) togetherWith
-                    (fadeOut(Motion.standard(Motion.SHORT)) + slideOutHorizontally(Motion.standard()) { w -> if (forward) -w / 8 else w / 8 })
-            },
+            // iOS 标签切换是快速交叉淡化，不做位移
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
             label = "tabs",
             modifier = Modifier
                 .fillMaxSize()
@@ -171,7 +158,7 @@ fun TunerApp(
         ) { current ->
             when (current) {
                 AppTab.TUNER -> if (granted) {
-                    TunerTab(tunerViewModel)
+                    TunerTab(tunerViewModel, onStopMetronome = metronomeViewModel::stop)
                 } else {
                     PermissionScreen(
                         permanentlyDenied = permanentlyDenied,

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="window_light">#FFFBFBFB</color>
-    <color name="window_dark">#FF121212</color>
+    <color name="window_light">#FFF2F2F7</color>
+    <color name="window_dark">#FF000000</color>
     <color name="icon_background">#FF1E2A38</color>
 </resources>
